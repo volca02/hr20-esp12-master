@@ -1,5 +1,8 @@
 #pragma once
 
+/// THIS FILE IS MOSTLY COPY OF OpenHR20's rfm.h file
+/// as that's probably the best definition file for the RFM12 registers/commands
+
 // settings
 #define RFM_BAUD_RATE           9600
 #define RFM_FREQ_MAIN           868
