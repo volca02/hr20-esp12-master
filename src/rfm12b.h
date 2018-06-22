@@ -104,6 +104,9 @@ struct RFM12B {
         if (!out.empty()) {
             if (send_byte(out.peek()))
                 out.pop();
+
+            // do not attempt to read if there are data to be sent.
+            return;
         }
 
         // don't overfill the input queue!
