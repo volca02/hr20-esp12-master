@@ -41,6 +41,7 @@ struct NTPTime {
     }
 
     time_t localTime() {
+        // TODO: in client_mode we'd use now(), in master mode we'll use NTPClient
 /*        TimeChangeRule *tcr; // pointer to the time change rule, use to get TZ abbrev
         time_t utc = timeClient.getEpochTime();
         return  tz.toLocal(utc, &tcr);*/
@@ -60,7 +61,7 @@ struct NTPTime {
 
         Serial.printf("RTC: %s %s\n",sDate, sTime);*/
 
-        Serial.printf("RTC: %02d.%02d.%02d %02d:%02d:%02d\n",
+        Serial.printf("RTC: %02d.%02d.%02d %02d:%02d:%02d\r\n",
                       day(local), month(local), year(local)-2000,
                       hour(local), minute(local), second(local));
     }
