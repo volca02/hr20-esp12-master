@@ -125,6 +125,9 @@ struct RFM12B {
         if (r >= 0) in.push((char)r);
     }
 
+    bool isSending() const { return mode == TX; }
+    bool isReceiving() const { return mode == RX; }
+
 protected:
     ShortQ<32> out, in;
 
