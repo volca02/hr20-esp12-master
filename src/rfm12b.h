@@ -22,8 +22,7 @@ struct ShortQ {
 
         // reset Q if we emptied it
         if (_pos >= _top) {
-            _pos = 0;
-            _top = 0;
+            clear();
         }
 
         return c;
@@ -38,6 +37,16 @@ struct ShortQ {
 
     bool empty() const { return _pos == _top; }
     bool full() const  { return _top >= LenT; }
+
+    // raw data access for packet storage
+    char *data() { return buf; }
+    const char *data() const { return buf; }
+    size_t size() const { return _top; }
+    void clear() {
+        _pos = 0;
+        _top = 0;
+    }
+    char operator[](size_t idx) const { return buf[idx]; }
 };
 
 // RFM is wired as SPI client, with GPIO2 being used as the select pin
