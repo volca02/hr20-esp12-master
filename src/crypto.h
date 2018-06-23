@@ -130,8 +130,8 @@ struct Crypto {
     // initializes Kmac, Kenc, K1 and K2
     Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time);
 
-    // updates the rtc if needed
-    void update();
+    // updates the rtc if needed. Returns true if second passed
+    bool update();
 
     // packet payload encrypt/decrypt function
     void encrypt_decrypt(uint8_t *data, unsigned size);

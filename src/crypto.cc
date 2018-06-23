@@ -89,7 +89,7 @@ Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
     roll(K1, K2);
 }
 
-void Crypto::update() {
+bool Crypto::update() {
     time_t now = time.localTime();
     if (now != lastTime) {
         lastTime = now;
@@ -101,7 +101,10 @@ void Crypto::update() {
         rtc.ss = second(now);
         rtc.DOW = (dayOfWeek(now) + 5) % 7 + 1; // dayOfWeek has sunday=1, we need monday=1
         rtc.pkt_cnt = 0;
+        return true;
     }
+
+    return false;
 }
 
 void Crypto::encrypt_decrypt(uint8_t *data, unsigned size) {
