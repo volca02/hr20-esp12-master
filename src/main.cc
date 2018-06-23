@@ -52,6 +52,12 @@ void verify_decode() {
         return;
     }
 
+    if (data_size < 5) {
+        Serial.println(" ! packet too short");
+        return;
+    }
+
+
     bool isSync = (packet[0] & 0x80) != 0;
 
     // what is this magic used in original code?
@@ -69,6 +75,10 @@ void verify_decode() {
                   ver ? "SUCCESS" : "FAILURE");
 
     if (isSync) {
+        if (packet.size() < 1+4+4) {
+            Serial.println("Sync packet too short");
+            return;
+        }
         crypto::RTC decoded;
         decoded.YY = packet[1];
         decoded.MM = packet[2] >> 4;
@@ -80,7 +90,18 @@ void verify_decode() {
         Serial.printf("Decoded time from sync packet: %02d.%02d.%02d %02d:%02d:%02d\n",
                       decoded.DD, decoded.MM, decoded.YY,
                       decoded.hh, decoded.mm, decoded.ss);
+
+        if (ver) {
+            // is this local time or what?
+            Serial.println("Synchronizing time");
+            setTime(decoded.hh, decoded.mm, decoded.ss, decoded.DD, decoded.MM, decoded.YY);
+            time.printRTC();
+        }
     } else {
+        if (packet.size() < 6) {
+            Serial.println("Sync packet too short");
+            return;
+        }
         // not a sync packet. we have to decode it
         crypt.encrypt_decrypt(reinterpret_cast<uint8_t*>(packet.data()) + 2, packet.size() - 6);
         Serial.println("Decoded data of the whole packet:");
