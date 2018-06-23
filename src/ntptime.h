@@ -1,36 +1,62 @@
+#pragma once
+
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Timezone.h>
 #include <Time.h>
 
-/*** time management **/
-WiFiUDP ntpUDP;
+namespace ntptime {
 
-// You can specify the time server pool and the offset (in seconds, can be
-// changed later with setTimeOffset() ). Additionaly you can specify the
-// update interval (in milliseconds, can be changed using setUpdateInterval() ).
-NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
+struct NTPTime {
+    /*** time management **/
+    WiFiUDP ntpUDP;
 
-//Central European Time (Frankfurt, Paris, Prague)
-TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     //Central European Summer Time
-TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       //Central European Standard Time
+    // You can specify the time server pool and the offset (in seconds, can be
+    // changed later with setTimeOffset() ). Additionaly you can specify the
+    // update interval (in milliseconds, can be changed using setUpdateInterval() ).
+    NTPClient timeClient;
 
-Timezone tz(CEST, CET);
-TimeChangeRule *tcr;        //pointer to the time change rule, use to get TZ abbrev
+    //Central European Time (Frankfurt, Paris, Prague)
+    TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     //Central European Summer Time
+    TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       //Central European Standard Time
+    Timezone tz;
 
-time_t localTime() {
-     time_t utc = timeClient.getEpochTime();
-     return  tz.toLocal(utc, &tcr);
-}
+    NTPTime()
+        : ntpUDP()
+        , timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000)
+        , tz(CEST, CET)
+    {}
 
-void printRTC(){
-      static char sDate[9];
-      static char sTime[11];
-      time_t local = localTime();
-      int mil = timeClient.getMillis();
+    bool timeInSync = false;
 
-      sprintf(sDate, "Y%02x%02x%02x", year(local)-2000, month(local), day(local));
-      sprintf(sTime, "H%02x%02x%02x%02x", hour(local), minute(local), second(local), mil/10);
+    void begin() {
+        timeClient.begin();
+        timeInSync = timeClient.update();
+    }
 
-      Serial.printf("RTC: %s %s",sDate, sTime);
-}
+    void update() {
+        if (!timeInSync) {
+            timeInSync = timeClient.update();
+        }
+    }
+
+    time_t localTime() {
+        TimeChangeRule *tcr; // pointer to the time change rule, use to get TZ abbrev
+        time_t utc = timeClient.getEpochTime();
+        return  tz.toLocal(utc, &tcr);
+    }
+
+    void printRTC(){
+        static char sDate[9];
+        static char sTime[11];
+        time_t local = localTime();
+        int mil = timeClient.getMillis();
+
+        sprintf(sDate, "Y%02x%02x%02x", year(local)-2000, month(local), day(local));
+        sprintf(sTime, "H%02x%02x%02x%02x", hour(local), minute(local), second(local), mil/10);
+
+        Serial.printf("RTC: %s %s\n",sDate, sTime);
+    }
+};
+
+} // namespace ntptime

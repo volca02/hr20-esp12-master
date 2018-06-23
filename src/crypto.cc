@@ -1,4 +1,5 @@
 #include "crypto.h"
+#include "ntptime.h"
 
 namespace crypto {
 
@@ -52,7 +53,9 @@ static void roll(const uint8_t *src, uint8_t *dst) {
     // omits that part, and so will we
 }
 
-Crypto::Crypto(const uint8_t *rfm_pass) {
+Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
+    : time(time)
+{
     // join pre-defined rfm_pass key + and hardcoded Km_upper
     uint8_t k_m[16];
     memcpy(k_m,     rfm_pass, 8);
@@ -86,15 +89,30 @@ Crypto::Crypto(const uint8_t *rfm_pass) {
     roll(K1, K2);
 }
 
-void Crypto::encrypt_decrypt(uint8_t *data, unsigned size, RTC *rtc) {
+void Crypto::update() {
+    time_t now = time.localTime();
+    if (now != lastTime) {
+        lastTime = now;
+        rtc.YY = year(now)-2000;
+        rtc.MM = month(now);
+        rtc.DD = day(now);
+        rtc.hh = hour(now);
+        rtc.mm = minute(now);
+        rtc.ss = second(now);
+        rtc.DOW = dayOfWeek(now);
+        rtc.pkt_cnt = 0;
+    }
+}
+
+void Crypto::encrypt_decrypt(uint8_t *data, unsigned size) {
     XTEA xenc(Kenc);
 
     uint8_t i = 0;
     uint8_t buf[8];
 
     while(i < size) {
-        xenc.encrypt(reinterpret_cast<uint8_t*>(rtc), buf);
-        rtc->pkt_cnt++;
+        xenc.encrypt(reinterpret_cast<uint8_t*>(&rtc), buf);
+        rtc.pkt_cnt++;
         do {
             data[i] ^= buf[i&7];
             i++;

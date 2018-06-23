@@ -3,6 +3,10 @@
 #include <Arduino.h>
 #include <cstdint>
 
+namespace ntptime {
+struct NTPTime;
+} // namespace ntptime
+
 namespace crypto {
 
 // simple block based xtea enc/dec
@@ -118,11 +122,19 @@ struct Crypto {
     uint8_t K1[8] = {0,0,0,0,0,0,0,0};
     uint8_t K2[8] = {0,0,0,0,0,0,0,0};
 
+    // Time management:
+    ntptime::NTPTime &time;
+    time_t lastTime;
+    RTC rtc;
+
     // initializes Kmac, Kenc, K1 and K2
-    Crypto(const uint8_t *rfm_pass);
+    Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time);
+
+    // updates the rtc if needed
+    void update();
 
     // packet payload encrypt/decrypt function
-    void encrypt_decrypt(uint8_t *data, unsigned size, RTC *rtc);
+    void encrypt_decrypt(uint8_t *data, unsigned size);
 };
 
 } // namespace crypto
