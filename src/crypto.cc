@@ -99,7 +99,7 @@ void Crypto::update() {
         rtc.hh = hour(now);
         rtc.mm = minute(now);
         rtc.ss = second(now);
-        rtc.DOW = dayOfWeek(now);
+        rtc.DOW = (dayOfWeek(now) + 5) % 7 + 1; // dayOfWeek has sunday=1, we need monday=1
         rtc.pkt_cnt = 0;
     }
 }
