@@ -34,7 +34,8 @@ void setup(void) {
   radio.begin();
 }
 
-void hexdump(char *ptr, size_t size) {
+void HexDump(const char *ptr, size_t size) {
+    Serial.printf("Size %d\n", size);
     for(;size;++ptr,--size) {
         Serial.printf("%02x ", (uint8_t)*ptr);
     }
@@ -48,7 +49,7 @@ void verify_decode() {
     size_t data_size = packet.size() - 1;
 
     if (data_size != (packet[0] & 0x7f)) {
-        Serial.println("- Incomplete packet received?");
+        Serial.println(" ! Incomplete packet received");
         return;
     }
 
@@ -66,6 +67,15 @@ void verify_decode() {
 
     bool ver = cm.verify(reinterpret_cast<const uint8_t *>(packet.data() + 1),
                          data_size - 5, isSync ? nullptr : reinterpret_cast<const uint8_t*>(&crypt.rtc));
+
+/*    if (!isSync) {
+        Serial.println("RTC STRUCT CONTENTS: ");
+        const char *rtc = reinterpret_cast<const char*>(&crypt.rtc);
+        size_t count = 8;
+        HexDump(rtc, count);
+        Serial.println("");
+    }
+*/
 
     // restore the pkt_cnt
     crypt.rtc.pkt_cnt -= cnt_offset;
@@ -104,8 +114,9 @@ void verify_decode() {
         }
         // not a sync packet. we have to decode it
         crypt.encrypt_decrypt(reinterpret_cast<uint8_t*>(packet.data()) + 2, packet.size() - 6);
+        crypt.rtc.pkt_cnt++;
         Serial.println("Decoded data of the whole packet:");
-        hexdump(packet.data(), packet.size());
+        HexDump(packet.data(), packet.size());
         Serial.println("");
     }
 }
