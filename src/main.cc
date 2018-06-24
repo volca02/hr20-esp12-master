@@ -65,7 +65,7 @@ void HexDump(const char *prefix, const void *p, size_t size) {
 // processes response packets from HR20s
 struct Parser {
 
-    void process_response_packet(Packet &packet) {
+    bool process_response_packet(Packet &packet) {
         // before the main loop, we trim the packet's mac and first 2 bytes
         packet.pop(); // skip length
         // sending device's address
@@ -74,6 +74,9 @@ struct Parser {
 
         // eat up the MAC, it's already verified
         packet.trim(4);
+
+        // indicates error in packet processing
+        bool err = false;
 
         while (!packet.empty()) {
             // the first byte here is command
@@ -85,58 +88,62 @@ struct Parser {
 
             switch (c) {
             case 'V':
-                on_version(addr, packet); break;
+                err |= on_version(addr, packet); break;
                 // these all respond with debug response
             case 'D': // Debug command response
             case 'A': // Set temperatures response (debug)
             case 'M': // Mode command response
-                on_debug(addr, packet); break;
+                err |= on_debug(addr, packet); break;
             case 'T': // Watch command response (reads watched variables from PGM)
             case 'R': // Read timers (?)
             case 'W': // Write timers (?)
-                on_timers(addr, packet); break;
+                err |= on_timers(addr, packet); break;
             case 'G': // get eeprom
             case 'S': // set eeprom
-                on_eeprom(addr, packet); break;
+                err |= on_eeprom(addr, packet); break;
             case 'L': // locked menu?
-                on_menu_lock(addr, packet); break;
+                err |= on_menu_lock(addr, packet); break;
             case 'B':
-                on_reboot(addr, packet);
+                err |= on_reboot(addr, packet);
             default:
                 ERR("UNK. CMD %c", c);
                 packet.clear();
-                return;
+                return true;
             }
         }
+        return err;
     }
 
-    void on_version(uint8_t addr, Packet &p) {
+    bool on_version(uint8_t addr, Packet &p) {
         // sequence of bytes terminated by \n
         while (1) {
             // packet too short or newline missing?
             if (p.empty()) {
                 ERR("SHORT VER");
                 p.clear();
-                return;
+                return true;
             }
 
             auto c = p.pop();
 
             // ending byte
             if (c == '\n') {
-                return;
+                return true;
             }
 
             // todo: append this somewhere or what?
             DBGI("%c", c);
         }
+
+        // will never get here
+        return false;
     }
 
-    void on_debug(uint8_t addr, Packet &p) {
+    bool on_debug(uint8_t addr, Packet &p) {
         if (p.size() < 9) {
             ERR("SHORT DBG");
             p.clear();
-            return;
+            return true;
         }
 
         // minutes. 0x80 is CTL_mode_auto, 0x40 is CTL_test_auto
@@ -154,50 +161,56 @@ struct Parser {
         uint8_t tmp_wtd   = p.pop();
         // wanted valve position
         uint8_t valve_wtd = p.pop();
+
+        return false;
     }
 
-    void on_timers(uint8_t addr, Packet &p) {
+    bool on_timers(uint8_t addr, Packet &p) {
         if (p.size() < 3) {
             ERR("SHORT TMR");
             p.clear();
-            return;
+            return true;
         }
 
         uint8_t idx  = p.pop();
         uint16_t val = p.pop() << 8 | p.pop();
+        return false;
     }
 
-    void on_eeprom(uint8_t addr, Packet &p) {
+    bool on_eeprom(uint8_t addr, Packet &p) {
         if (p.size() < 2) {
             ERR("SHORT EEPROM");
             p.clear();
-            return;
+            return true;
         }
 
         uint8_t idx = p.pop();
         uint8_t val = p.pop();
+        return false;
     }
 
-    void on_menu_lock(uint8_t addr, Packet &p) {
+    bool on_menu_lock(uint8_t addr, Packet &p) {
         if (p.size() < 1) {
             ERR("SHORT MLCK");
             p.clear();
-            return;
+            return true;
         }
 
         uint8_t menu_locked = p.pop();
+        return false;
     }
 
-    void on_reboot(uint8_t addr, Packet &p) {
+    bool on_reboot(uint8_t addr, Packet &p) {
         if (p.size() < 2) {
             ERR("SHORT REBOOT");
             p.clear();
-            return;
+            return true;
         }
 
         // fixed response. has to be 0x13, 0x24
         uint8_t b13 = p.pop();
         uint8_t b24 = p.pop();
+        return false;
     }
 };
 
