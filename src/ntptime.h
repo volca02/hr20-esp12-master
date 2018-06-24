@@ -34,10 +34,12 @@ struct NTPTime {
         timeInSync = timeClient.update();
     }
 
-    void update() {
+    bool update() {
         if (!timeInSync) {
             timeInSync = timeClient.update();
+            return timeInSync;
         }
+        return false;
     }
 
     time_t localTime() {
