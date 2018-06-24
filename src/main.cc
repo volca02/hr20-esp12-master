@@ -11,10 +11,18 @@
 #ifdef DEBUG
 #define DBGI(...) do { Serial.printf(__VA_ARGS__); } while (0)
 #define DBG(...) do { Serial.printf(__VA_ARGS__); Serial.println(); } while (0)
+// TODO: BETTER ERROR REPORTING
+#define ERR(...) do { Serial.write("ERR "); Serial.printf(__VA_ARGS__); Serial.println(); } while (0)
 #else
 #define DBGI(...) do { } while (0)
 #define DBG(...) do { } while (0)
+#define ERR(...) do { } while (0)
 #endif
+
+// Sync count after RTC update.
+// 255 is OpenHR20 default. (122 minutes after time sync)
+// TODO: make time updates perpetual and resolve out of sync client issues
+#define SYNC_COUNT 255
 
 // custom specified RFM password
 constexpr const uint8_t rfm_pass[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
@@ -24,6 +32,8 @@ ntptime::NTPTime time;
 
 // this encompasses the encryption handling routines
 crypto::Crypto crypt{rfm_pass, time};
+
+int sync_count = 0;
 
 RFM12B radio;
 
@@ -52,6 +62,145 @@ void HexDump(const char *prefix, const void *p, size_t size) {
     DBG(".");
 }
 
+// processes response packets from HR20s
+struct Parser {
+
+    void process_response_packet(Packet &packet) {
+        // before the main loop, we trim the packet's mac and first 2 bytes
+        packet.pop(); // skip length
+        // sending device's address
+        uint8_t addr = packet.pop();
+        size_t pos = 0;
+
+        // eat up the MAC, it's already verified
+        packet.trim(4);
+
+        while (!packet.empty()) {
+            // the first byte here is command
+            auto c = packet.pop();
+            bool resp = c & 0x80; // responses have highest bit set
+            c &= 0x7f;
+
+            // TODO: if (!resp) ERR...
+
+            switch (c) {
+            case 'V':
+                on_version(addr, packet); break;
+                // these all respond with debug response
+            case 'D': // Debug command response
+            case 'A': // Set temperatures response (debug)
+            case 'M': // Mode command response
+                on_debug(addr, packet); break;
+            case 'T': // Watch command response (reads watched variables from PGM)
+            case 'R': // Read timers (?)
+            case 'W': // Write timers (?)
+                on_timers(addr, packet); break;
+            case 'G': // get eeprom
+            case 'S': // set eeprom
+                on_eeprom(addr, packet); break;
+            case 'L': // locked menu?
+                on_menu_lock(addr, packet); break;
+            case 'B':
+                on_reboot(addr, packet);
+            default:
+                ERR("UNK. CMD %c", c);
+                packet.clear();
+                return;
+            }
+        }
+    }
+
+    void on_version(uint8_t addr, Packet &p) {
+        // sequence of bytes terminated by \n
+        while (1) {
+            // packet too short or newline missing?
+            if (p.empty()) {
+                ERR("SHORT VER");
+                p.clear();
+                return;
+            }
+
+            auto c = p.pop();
+
+            // ending byte
+            if (c == '\n') {
+                return;
+            }
+
+            // todo: append this somewhere or what?
+            DBGI("%c", c);
+        }
+    }
+
+    void on_debug(uint8_t addr, Packet &p) {
+        if (p.size() < 9) {
+            ERR("SHORT DBG");
+            p.clear();
+            return;
+        }
+
+        // minutes. 0x80 is CTL_mode_auto, 0x40 is CTL_test_auto
+        uint8_t min_ctl   = p.pop();
+        // seconds. 0x80 is menu_locked, 0x40 is mode_window
+        uint8_t sec_mm    = p.pop();
+        uint8_t ctl_err   = p.pop();
+        // 16 bit temp average
+        uint8_t tmp_avg_h = p.pop();
+        uint8_t tmp_avg_l = p.pop();
+        // 16 bit batery measurement?
+        uint8_t bat_avg_h = p.pop();
+        uint8_t bat_avg_l = p.pop();
+        // wanted temperature
+        uint8_t tmp_wtd   = p.pop();
+        // wanted valve position
+        uint8_t valve_wtd = p.pop();
+    }
+
+    void on_timers(uint8_t addr, Packet &p) {
+        if (p.size() < 3) {
+            ERR("SHORT TMR");
+            p.clear();
+            return;
+        }
+
+        uint8_t idx  = p.pop();
+        uint16_t val = p.pop() << 8 | p.pop();
+    }
+
+    void on_eeprom(uint8_t addr, Packet &p) {
+        if (p.size() < 2) {
+            ERR("SHORT EEPROM");
+            p.clear();
+            return;
+        }
+
+        uint8_t idx = p.pop();
+        uint8_t val = p.pop();
+    }
+
+    void on_menu_lock(uint8_t addr, Packet &p) {
+        if (p.size() < 1) {
+            ERR("SHORT MLCK");
+            p.clear();
+            return;
+        }
+
+        uint8_t menu_locked = p.pop();
+    }
+
+    void on_reboot(uint8_t addr, Packet &p) {
+        if (p.size() < 2) {
+            ERR("SHORT REBOOT");
+            p.clear();
+            return;
+        }
+
+        // fixed response. has to be 0x13, 0x24
+        uint8_t b13 = p.pop();
+        uint8_t b24 = p.pop();
+    }
+};
+
 /// temporary test that verifies the packet integrity and spills out decoded data
 void verify_decode(Packet &packet) {
     DBG("== Will verify_decode packet of %d bytes ==", packet.size());
@@ -79,22 +228,13 @@ void verify_decode(Packet &packet) {
     bool ver = cm.verify(reinterpret_cast<const uint8_t *>(packet.data() + 1),
                          data_size - 5, isSync ? nullptr : reinterpret_cast<const uint8_t*>(&crypt.rtc));
 
-/*    if (!isSync) {
-        Serial.println("RTC STRUCT CONTENTS: ");
-        const char *rtc = reinterpret_cast<const char*>(&crypt.rtc);
-        size_t count = 8;
-        HexDump(rtc, count);
-        Serial.println("");
-    }
-*/
-
     // restore the pkt_cnt
     crypt.rtc.pkt_cnt -= cnt_offset;
 
     DBG(" %s%s PACKET VERIFICATION %s",
-        ver ? "*" : "!",
-        isSync ? " SYNC" : "",
-        ver ? "SUCCESS" : "FAILURE");
+        ver    ? "*"       : "!",
+        isSync ? " SYNC"   : "",
+        ver    ? "SUCCESS" : "FAILURE");
 
     if (isSync) {
         if (packet.size() < 1+4+4) {
@@ -121,7 +261,7 @@ void verify_decode(Packet &packet) {
         }
     } else {
         if (packet.size() < 6) {
-            DBG(" ! Sync packet too short");
+            DBG(" ! packet too short");
             return;
         }
         // not a sync packet. we have to decode it
@@ -187,26 +327,28 @@ auto receiver = make_receiver(radio, [](Packet &p) { verify_decode(p); });
 
 void loop(void) {
     radio.poll();
-    time.update();
+    if (time.update()) sync_count = SYNC_COUNT;
+
     bool sec_pass = crypt.update(); // update the crypto rtc if needed
 
     // TODO: if it's 00 or 30, we send sync
 #ifndef CLIENT_MODE
     if (sec_pass) {
-        if (crypt.rtc.ss == 0 ||
-            crypt.rtc.ss == 30)
+        if (sync_count &&
+            (crypt.rtc.ss == 0 ||
+             crypt.rtc.ss == 30))
         {
             // send sync packet
             // TODO: sender.send_sync(crypt.rtc);
+            --sync_count;
         }
     }
 #endif
 
     // only update the receiver if we're currently receiving
+    // - sending blocks recv
     if (radio.isReceiving())
     {
-        // always active in client mode and
-        // Let's receive data
         receiver.update();
     }
 }
