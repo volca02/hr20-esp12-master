@@ -7,10 +7,6 @@
 #include "wifi.h"
 #include "ntptime.h"
 
-// FOR NOW
-#define DEBUG
-#define CLIENT_MODE
-
 #ifdef DEBUG
 #define DBGI(...) do { Serial.printf(__VA_ARGS__); } while (0)
 #define DBG(...) do { Serial.printf(__VA_ARGS__); Serial.println(); } while (0)
@@ -28,6 +24,7 @@
 #define SYNC_COUNT 255
 
 // custom specified RFM password
+// TODO: set this via -DRFM_PASS macros for convenient customization, or allow setting this via some web interface
 constexpr const uint8_t rfm_pass[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
 
 // RTC with NTP synchronization
@@ -250,7 +247,7 @@ protected:
         return true;
     }
 
-    // processes packet from clients, returns true on error
+    // processes packet from clients, returns false on error
     bool process_packet(Packet &packet) {
         // owned by object to save on now() calls and param passes
         // before the main loop, we trim the packet's mac and first 2 bytes
@@ -292,12 +289,12 @@ protected:
             case 'B':
                 err |= on_reboot(addr, packet);
             default:
-                ERR("UNK. CMD %c", c);
+                ERR("UNK. CMD %x", (int)c);
                 packet.clear();
                 return true;
             }
         }
-        return err != OK;
+        return err == OK;
     }
 
     void on_failed_verify() {
@@ -354,6 +351,9 @@ protected:
         // wanted valve position
         uint8_t valve_wtd = p.pop();
 
+        // TODO: dummy or what?! Maybe off-by-one problem in original impl.
+        p.pop();
+
         // fetch client from model
         HR20 *hr = model[addr];
         if (!hr) return ERR_PROTO;
@@ -369,6 +369,7 @@ protected:
         hr->cur_temp_wtd   = tmp_wtd;
         hr->cur_valve_wtd  = valve_wtd;
 
+        DBG(" * DBG RESP OK");
         return OK;
     }
 
@@ -458,7 +459,7 @@ struct Receiver {
         if (b < 0) return;
 
         if (!packet.push(b)) {
-            DBG(" ! packet exceeds maximal length. Discarding");
+            ERR("packet exceeds maximal length. Discarding");
             wait_for_sync();
         }
 
@@ -466,7 +467,7 @@ struct Receiver {
             length = b & ~0x80;
 
             if (length == 0) {
-                DBG("! Zero length packet");
+                ERR("Zero length packet");
                 wait_for_sync();
             }
         } else {
