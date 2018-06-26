@@ -21,7 +21,9 @@ struct NTPTime {
     TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     //Central European Summer Time
     TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       //Central European Standard Time
     Timezone tz;
+    bool timeInSync = false;
 #endif
+
 
     NTPTime()
 #ifndef CLIENT_MODE
@@ -31,18 +33,21 @@ struct NTPTime {
 #endif
     {}
 
-    bool timeInSync = false;
 
     void begin() {
+#ifndef CLIENT_MODE
         timeClient.begin();
         timeInSync = timeClient.update();
+#endif
     }
 
     bool update() {
+#ifndef CLIENT_MODE
         if (!timeInSync) {
             timeInSync = timeClient.update();
             return timeInSync;
         }
+#endif
         return false;
     }
 
