@@ -8,6 +8,7 @@
 namespace ntptime {
 
 struct NTPTime {
+#ifndef CLIENT_MODE
     /*** time management **/
     WiFiUDP ntpUDP;
 
@@ -20,11 +21,14 @@ struct NTPTime {
     TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     //Central European Summer Time
     TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       //Central European Standard Time
     Timezone tz;
+#endif
 
     NTPTime()
+#ifndef CLIENT_MODE
         : ntpUDP()
         , timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000)
         , tz(CEST, CET)
+#endif
     {}
 
     bool timeInSync = false;
@@ -43,25 +47,17 @@ struct NTPTime {
     }
 
     time_t localTime() {
-        // TODO: in client_mode we'd use now(), in master mode we'll use NTPClient
-/*        TimeChangeRule *tcr; // pointer to the time change rule, use to get TZ abbrev
-        time_t utc = timeClient.getEpochTime();
-        return  tz.toLocal(utc, &tcr);*/
+#ifdef CLIENT_MODE
         return now();
+#else
+        TimeChangeRule *tcr; // pointer to the time change rule, use to get TZ abbrev
+        time_t utc = timeClient.getEpochTime();
+        return  tz.toLocal(utc, &tcr);
+#endif
     }
 
     void printRTC(){
         time_t local = localTime();
-
-/*
-        static char sDate[9];
-        static char sTime[11];
-        int mil = timeClient.getMillis();
-
-        sprintf(sDate, "Y%02x%02x%02x", year(local)-2000, month(local), day(local));
-        sprintf(sTime, "H%02x%02x%02x%02x", hour(local), minute(local), second(local), mil/10);
-
-        Serial.printf("RTC: %s %s\n",sDate, sTime);*/
 
         Serial.printf("RTC: %02d.%02d.%02d %02d:%02d:%02d\r\n",
                       day(local), month(local), year(local)-2000,
