@@ -43,8 +43,6 @@ crypto::Crypto crypt{rfm_pass, time};
 // sending packet queue
 using SendQ = PacketQ<32, SndPacket>;
 
-int sync_count = 0;
-
 // 10 minutes to resend the change request if we didn't yet get the value change confirmed
 const time_t RESEND_TIME = 10*60;
 
@@ -262,6 +260,8 @@ protected:
             return false;
         }
 
+        // TODO: process force flags if present
+
         crypto::RTC decoded;
         decoded.YY = packet[1];
         decoded.MM = packet[2] >> 4;
@@ -346,9 +346,11 @@ protected:
         }
 
         // inform send queue that we can send data for addr if we have any
-        // TODO: Implement time slotting to limit the count of packets in one turn
-        // - we could very well be stuck in a send/recv loop with one client
-        sndQ.prepare_to_send_to(addr);
+        // we limit to one packet to each client every minute by this logic
+        if (last_addr != addr) {
+            sndQ.prepare_to_send_to(addr);
+            last_addr = addr;
+        }
 
         return err == OK;
     }
@@ -535,6 +537,45 @@ protected:
         auto_mode.set_send_time(rd_time);
     }
 
+    void send_sync() {
+        SndPacket *p = sndQ.want_to_send_for(0, 4);
+        if (!p) return;
+
+        // TODO: force flags, if needed!
+        auto &rtc = crypto.rtc;
+        p->push(rtc.YY);
+        p->push(rtc.MM << 4 | (rtc.DD >> 3));
+        p->push((rtc.DD << 5) | rtc.hh);
+        p->push(rtc.mm << 1 | (rtc.ss == 30 ? 1 : 0));
+    }
+
+    void update(uint8_t seconds, bool changed_time) {
+        // clear
+        if (seconds == 0) last_addr = 0xFF;
+
+        // this whole class does not make much sense for clients,
+        // it implements master logic...
+#ifndef CLIENT_MODE
+        if (changed_time) sync_count = SYNC_COUNT;
+
+        if (sync_count &&
+            (crypt.rtc.ss == 0 ||
+             crypt.rtc.ss == 30))
+        {
+            // send sync packet
+            // TODO: set force flags is we want to comm with a specific client
+            send_sync();
+            // and immediately prepare to send it
+            sndQ.prepare_to_send_to(0);
+
+            --sync_count;
+        }
+
+        // right before the next minute starts,
+        // we diff the model and fill the queues
+        if (seconds == 59) protocol.fill_send_queues();
+#endif
+    }
 
     // ref to model of the network
     Model &model;
@@ -544,6 +585,12 @@ protected:
 
     // ref to packet queue responsible for packet retrieval for sending
     SendQ &sndQ;
+
+    // last address we sent a packet to - limits to 1 packet for every client
+    // every minute
+    uint8_t last_addr = 0xFF;
+
+    int sync_count = 0;
 
     // current read time
     time_t rd_time;
@@ -637,28 +684,17 @@ auto transciever =
 
 void loop(void) {
     radio.poll();
-    if (time.update()) sync_count = SYNC_COUNT;
+    bool changed_time = time.update();
 
     // Note: could use [[maybe_unused]] in C++17
     bool __attribute__((unused)) sec_pass = crypt.update(); // update the crypto rtc if needed
 
     // TODO: if it's 00 or 30, we send sync
-#ifndef CLIENT_MODE
     if (sec_pass) {
-        if (sync_count &&
-            (crypt.rtc.ss == 0 ||
-             crypt.rtc.ss == 30))
-        {
-            // send sync packet
-            // TODO: set force flags is we want to comm with a specific client
-            // TODO: protocol.send_sync(crypt.rtc);
-            --sync_count;
-        }
-
-        // right before the next minute starts...
-        if (crypt.rtc.ss == 59) protocol.fill_send_queues();
-    }
+#ifndef CLIENT_MODE
+        protocol.update(crypt.rtc.ss, changed_time);
 #endif
+    }
 
     transciever.update();
 }
