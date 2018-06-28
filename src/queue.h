@@ -46,6 +46,12 @@ struct ShortQ {
         _top = 0;
     }
 
+    size_t free_size() const {
+        if (_top > LenT)
+            return 0;
+        return LenT - _top;
+    }
+
     // trims extra bytes from queue end
     bool trim(uint8_t count) {
         if (count >= _top || (_pos + count) >= _top) {
@@ -58,48 +64,4 @@ struct ShortQ {
     }
 
     uint8_t operator[](size_t idx) const { return buf[idx]; }
-};
-
-// packet definition...
-// we have 32 bytes for packets. more than enough
-using Packet = ShortQ<32>;
-
-// implements a command queue
-template<uint8_t LenT, typename PacketT>
-struct PacketQ {
-    PacketQ() : que() {}
-
-    /// insert into queue or return nullptr if full
-    /// returns packet structure to be filled with data
-    PacketT *put(uint8_t addr) {
-        for (unsigned i = 0; i < LenT; ++i) {
-            if (que[i].addr == 0) {
-                que[i].addr = addr;
-                return &que[i].packet;
-            }
-        }
-
-        // full
-        return nullptr;
-    }
-
-    /// destructive get - retrieves packet and marks position free
-    PacketT *get(uint8_t addr) {
-        for (unsigned i = 0; i < LenT; ++i) {
-            if (que[i].addr == addr) {
-                que[i].addr = 0;
-                return &que[i].packet;
-            }
-        }
-
-        // full
-        return nullptr;
-    }
-
-    struct Item {
-        uint8_t addr;
-        PacketT packet;
-    };
-
-    Item que[LenT];
 };

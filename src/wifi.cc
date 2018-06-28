@@ -1,5 +1,12 @@
 #include "wifi.h"
 
+#ifdef CLIENT_MODE
+
+void setupWifi() {
+}
+
+#else
+
 WiFiManager wifiManager;
 
 void setupWifi()
@@ -18,3 +25,5 @@ void setupWifi()
     Serial.println("Connected :)");
     Serial.println(WiFi.localIP());
 }
+
+#endif

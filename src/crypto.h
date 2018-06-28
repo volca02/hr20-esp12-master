@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <cstdint>
 
+#include "queue.h"
+
 namespace ntptime {
 struct NTPTime;
 } // namespace ntptime
@@ -70,15 +72,18 @@ struct CMAC {
          : k1(k1), k2(k2), kmac(kmac)
     {}
 
-    // appends cmac at the end of data+size buffer (4 bytes beyond specified length)
-    void compute(uint8_t *data, size_t size, const uint8_t *prefix = nullptr) {
+    // sets cmac to a given ShortQ
+    void compute(const uint8_t *data, size_t size, ShortQ<4> &cmac,
+                 const uint8_t *prefix = nullptr) const
+    {
         uint8_t buf[8];
         calc_cmac(data, size, prefix, buf);
-        memcpy(data + size, buf, 4);
+        cmac.clear();
+        for (int i = 0; i < 4; ++i) cmac.push(buf[i]);
     }
 
     // verifies 4 bytes after the specified buffer end for cmac signature
-    bool verify(const uint8_t *data, size_t size, const uint8_t *prefix = nullptr) {
+    bool verify(const uint8_t *data, size_t size, const uint8_t *prefix = nullptr) const {
         uint8_t buf[8];
         calc_cmac(data, size, prefix, buf);
 
@@ -90,7 +95,7 @@ struct CMAC {
     }
 
 protected:
-    void calc_cmac(const uint8_t *data, size_t size, const uint8_t *prefix, uint8_t *buf);
+    void calc_cmac(const uint8_t *data, size_t size, const uint8_t *prefix, uint8_t *buf) const;
 
     const uint8_t *k1;
     const uint8_t *k2;
@@ -127,6 +132,8 @@ struct Crypto {
     time_t lastTime;
     RTC rtc;
 
+    crypto::CMAC cmac;
+
     // initializes Kmac, Kenc, K1 and K2
     Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time);
 
@@ -135,6 +142,25 @@ struct Crypto {
 
     // packet payload encrypt/decrypt function
     void encrypt_decrypt(uint8_t *data, unsigned size);
+
+    bool cmac_verify(const uint8_t *data, size_t size, bool isSync) {
+        return cmac.verify(
+                data, size,
+                isSync ? nullptr : rtc_bytes());
+    }
+
+    // fills cmac for given packet
+    void cmac_fill(const uint8_t *data, size_t size,
+                   bool isSync, ShortQ<4> &tgt) const
+    {
+        cmac.compute(data, size, tgt,
+                     isSync ? nullptr : rtc_bytes());
+
+    }
+
+    const uint8_t *rtc_bytes() const {
+        return reinterpret_cast<const uint8_t *>(&rtc);
+    }
 };
 
 } // namespace crypto

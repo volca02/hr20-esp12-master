@@ -3,6 +3,7 @@
 
 #include "queue.h"
 #include "crypto.h"
+#include "packetqueue.h"
 #include "rfm12b.h"
 #include "wifi.h"
 #include "ntptime.h"
@@ -30,10 +31,22 @@ constexpr const uint8_t rfm_pass[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23,
 // RTC with NTP synchronization
 ntptime::NTPTime time;
 
+// sent packet definition...
+// RFM_FRAME_MAX is 80, we have to have enough space for that too
+using RcvPacket = ShortQ<80>;
+// sent packet is shorter, as we hold cmac in an isolated place
+using SndPacket = ShortQ<76>;
+
 // this encompasses the encryption handling routines
 crypto::Crypto crypt{rfm_pass, time};
 
+// sending packet queue
+using SendQ = PacketQ<32, SndPacket>;
+
 int sync_count = 0;
+
+// 10 minutes to resend the change request if we didn't yet get the value change confirmed
+const time_t RESEND_TIME = 10*60;
 
 RFM12B radio;
 
@@ -59,20 +72,40 @@ void HexDump(const char *prefix, const void *p, size_t size) {
     DBG(".");
 }
 
+// read-only value that gets reported by HR20 (not set back, not changeable)
+template<typename T>
+struct CachedValue {
+    bool needs_read() const { return read_time == 0; }
+    void set_remote(T val, time_t when) { remote = val; read_time = when; }
+    T get_remote() const { return remote; }
+protected:
+    time_t read_time = 0;
+    T remote;
+};
+
 // implements a pair of values - local/remote
 template<typename T>
-struct ValueSync {
-    bool needs_read() const { return read_time == 0; }
-    bool needs_write() const { return (read_time != 0) && (local != remote); }
+struct SyncedValue : public CachedValue<T> {
+    bool needs_write(time_t now) const {
+        // don't try to update values if we don't they don't match
+        // also don't re-send update before RESEND_TIME elapses
+        // and of course don't send updates if the requested value
+        // matches what's on remote
+        return (this->read_time != 0)
+            && ((now - this->send_time) > RESEND_TIME)
+            && (local != this->remote);
+    }
 
     T get_local() const { return local; }
-    T get_remote() const { return remote; }
 
-    void set_local(T val) { local = val; }
-    void set_remote(T val, time_t when) { remote = val; read_time = when; }
+    void set_local(T val) { local = val; send_time = 0; }
+
+    // sets the time we tried to update remote last time
+    void set_send_time(time_t t) { send_time = t; }
+
 private:
-    time_t read_time = 0;
-    T local, remote;
+    time_t send_time = 0;
+    T local;
 };
 
 // models a single HR20
@@ -87,12 +120,12 @@ struct HR20 {
     // these are mirrored values - we sync them to HR20 when a change is requested
     // but only after we verify (read_time != 0) that we know them to differ
 
-    // temp, degrees * 2 (one unit is 0.5 degrees) - A[XX][XX]
-    ValueSync<uint16_t> temp_wanted;
+    // temperature wanted - update A[XX] (0.5 degres accuracy)
+    SyncedValue<uint8_t>  temp_wanted;
     // automatic/manual temperature selection - M[01]/M[00]
-    ValueSync<bool>     auto_mode;
+    SyncedValue<bool>     auto_mode;
     // false unlocked, true locked - L[01]/L[00]
-    ValueSync<bool>     menu_locked;
+    SyncedValue<bool>     menu_locked;
 
     // TODO:
     // weekly automatic temperature timer - R[DD], W[DD][XX][XX]
@@ -101,18 +134,18 @@ struct HR20 {
 
     // == Just read from HR20 - not controllable ==
     // true means auto mode with temperature equal to requested
-    bool test_auto;
+    CachedValue<bool>     test_auto;
     // true means open window
-    bool mode_window;
+    CachedValue<bool>     mode_window;
     // average temperature
-    uint16_t temp_avg;
+    CachedValue<uint16_t> temp_avg;
     // average battery - [/0.001]V
-    uint16_t bat_avg;
+    CachedValue<uint16_t> bat_avg;
     // TODO: merge this with temp_wanted? Are they fundamentally different?
     // current wanted temperature, degrees
-    uint8_t cur_temp_wtd;
+    CachedValue<uint8_t>  cur_temp_wtd;
     // desired valve position
-    uint8_t cur_valve_wtd;
+    CachedValue<uint8_t>  cur_valve_wtd;
 };
 
 constexpr const uint8_t MAX_HR_COUNT = 32;
@@ -130,24 +163,24 @@ protected:
     HR20 clients[MAX_HR_COUNT];
 };
 
-// implements send/recieve of the OpenHR20 protocol
+// implements send/receive of the OpenHR20 protocol
 struct Protocol {
-    Protocol(Model &m) : model(m) {}
+    Protocol(Model &m, crypto::Crypto &crypto, SendQ &sndQ)
+        : model(m), crypto(crypto), sndQ(sndQ)
+    {}
 
     // bitfield
     enum Error {
         OK = 0, // no bit allocated for OK
-        ERR_PROTO = 1,
-        ERR_OTHER = 4 // whatever
+        ERR_PROTO = 1
     };
 
     /// verifies incoming packet, processes it accordingly
-    void recieve(Packet &packet) {
+    void receive(RcvPacket &packet) {
         rd_time = now();
 
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
 
-        crypto::CMAC cm(crypt.K1, crypt.K2, crypt.Kmac);
         size_t data_size = packet.size() - 1;
 
         if (data_size != (packet[0] & 0x7f)) {
@@ -166,8 +199,9 @@ struct Protocol {
         uint8_t cnt_offset = (packet.size() + 1) / 8;
         crypt.rtc.pkt_cnt += cnt_offset;
 
-        bool ver = cm.verify(reinterpret_cast<const uint8_t *>(packet.data() + 1),
-                             data_size - 5, isSync ? nullptr : reinterpret_cast<const uint8_t*>(&crypt.rtc));
+        bool ver = crypto.cmac_verify(
+            reinterpret_cast<const uint8_t *>(packet.data() + 1), data_size - 5,
+            isSync);
 
         // restore the pkt_cnt
         crypt.rtc.pkt_cnt -= cnt_offset;
@@ -192,15 +226,18 @@ struct Protocol {
                 return;
             }
             // not a sync packet. we have to decode it
-            crypt.encrypt_decrypt(reinterpret_cast<uint8_t*>(packet.data()) + 2, packet.size() - 6);
+            crypt.encrypt_decrypt(
+                    reinterpret_cast<uint8_t *>(packet.data()) + 2,
+                    packet.size() - 6);
+
+            // return the packet counter back
             crypt.rtc.pkt_cnt++;
+
 #ifdef DEBUG
             HexDump(" * Decoded packet data", packet.data(), packet.size());
 #endif
             if (!process_packet(packet)) {
                 ERR("packet processing failed");
-            } else {
-                // we have a window of opportunity to send some scheduled packets
             }
         }
     }
@@ -214,12 +251,12 @@ struct Protocol {
             if (hr->last_contact == 0) continue; // not yet seen client
 
             // we might have some changes to queue
-            // TODO: CODE!
+            queue_updates_for(i, *hr);
         }
     }
 
 protected:
-    bool process_sync_packet(Packet &packet) {
+    bool process_sync_packet(RcvPacket &packet) {
         if (packet.size() < 1+4+4) {
             Serial.println(" ! Sync packet too short");
             return false;
@@ -248,7 +285,7 @@ protected:
     }
 
     // processes packet from clients, returns false on error
-    bool process_packet(Packet &packet) {
+    bool process_packet(RcvPacket &packet) {
         // owned by object to save on now() calls and param passes
         // before the main loop, we trim the packet's mac and first 2 bytes
         packet.pop(); // skip length
@@ -267,7 +304,20 @@ protected:
             bool resp = c & 0x80; // responses have highest bit set
             c &= 0x7f;
 
-            // TODO: based on CLIENT_MODE: if (!resp) ERR... or if (resp) ...
+#ifdef CLIENT_MODE
+            if (resp) {
+                // TODO:
+                /*
+                ERR("Slave can't process responses");
+                return false;
+                */
+            }
+#else
+            if (!resp) {
+                ERR("Master can't process commands");
+                return false;
+            }
+#endif
 
             switch (c) {
             case 'V':
@@ -294,15 +344,21 @@ protected:
                 return true;
             }
         }
+
+        // inform send queue that we can send data for addr if we have any
+        // TODO: Implement time slotting to limit the count of packets in one turn
+        // - we could very well be stuck in a send/recv loop with one client
+        sndQ.prepare_to_send_to(addr);
+
         return err == OK;
     }
 
     void on_failed_verify() {
         // TODO: Might immediately send sync as response to sync a stubborn HR20
-        // with incompatible recieve windows that does not hear normal Synces
+        // with incompatible receive windows that does not hear normal Synces
     }
 
-    Error on_version(uint8_t addr, Packet &p) {
+    Error on_version(uint8_t addr, RcvPacket &p) {
         // spilled into serial if enabled, but othewise ignored
         // sequence of bytes terminated by \n
         while (1) {
@@ -328,7 +384,13 @@ protected:
         return OK;
     }
 
-    bool on_debug(uint8_t addr, Packet &p) {
+    bool on_debug(uint8_t addr, RcvPacket &p) {
+        // 10 0a 44 27 1e 04 08 9f 0a 5a 23 1e 44 e0 8e 87 01
+        // 16 bytes len, address 10
+        // 44 == D
+        // data[9] 27 1e 04 08 9f 0a 5a 23 1e
+        // ?? 44
+        // cmac[4] e0 8e 87 01
         if (p.size() < 9) {
             ERR("SHORT DBG");
             p.clear();
@@ -361,19 +423,19 @@ protected:
         hr->last_contact = rd_time;
 
         hr->auto_mode.set_remote(min_ctl & 0x80, rd_time);
-        hr->test_auto   = min_ctl & 0x40;
+        hr->test_auto.set_remote(min_ctl & 0x40, rd_time);
         hr->menu_locked.set_remote(sec_mm & 0x80, rd_time);
-        hr->mode_window = sec_mm & 0x40;
-        hr->temp_avg    = tmp_avg_h << 8 | tmp_avg_l;
-        hr->bat_avg     = bat_avg_h << 8 | bat_avg_l;
-        hr->cur_temp_wtd   = tmp_wtd;
-        hr->cur_valve_wtd  = valve_wtd;
+        hr->mode_window.set_remote(sec_mm & 0x40, rd_time);
+        hr->temp_avg.set_remote(tmp_avg_h << 8 | tmp_avg_l, rd_time);
+        hr->bat_avg.set_remote(bat_avg_h << 8 | bat_avg_l, rd_time);
+        hr->cur_temp_wtd.set_remote(tmp_wtd, rd_time);
+        hr->cur_valve_wtd.set_remote(valve_wtd, rd_time);
 
         DBG(" * DBG RESP OK");
         return OK;
     }
 
-    bool on_timers(uint8_t addr, Packet &p) {
+    bool on_timers(uint8_t addr, RcvPacket &p) {
         if (p.size() < 3) {
             ERR("SHORT TMR");
             p.clear();
@@ -389,7 +451,7 @@ protected:
         return OK;
     }
 
-    bool on_eeprom(uint8_t addr, Packet &p) {
+    bool on_eeprom(uint8_t addr, RcvPacket &p) {
         if (p.size() < 2) {
             ERR("SHORT EEPROM");
             p.clear();
@@ -405,7 +467,7 @@ protected:
         return OK;
     }
 
-    bool on_menu_lock(uint8_t addr, Packet &p) {
+    bool on_menu_lock(uint8_t addr, RcvPacket &p) {
         if (p.size() < 1) {
             ERR("SHORT MLCK");
             p.clear();
@@ -423,7 +485,7 @@ protected:
         return OK;
     }
 
-    bool on_reboot(uint8_t addr, Packet &p) {
+    bool on_reboot(uint8_t addr, RcvPacket &p) {
         if (p.size() < 2) {
             ERR("SHORT REBOOT");
             p.clear();
@@ -440,19 +502,69 @@ protected:
         return OK;
     }
 
+    void queue_updates_for(uint8_t addr, HR20 &hr) {
+        // wanted temperature
+        if (hr.temp_wanted.needs_write(rd_time))
+            send_set_temp(addr, hr.temp_wanted);
+        if (hr.auto_mode.needs_write(rd_time))
+            send_set_auto_mode(addr, hr.auto_mode);
+
+    }
+
+    void send_set_temp(uint8_t addr, SyncedValue<uint8_t> &temp_wanted) {
+        // 2 bytes [A][xx] xx is in half degrees
+        SndPacket *p = sndQ.want_to_send_for(addr, 2);
+        if (!p) return;
+
+        p->push('A');
+        p->push(temp_wanted.get_local());
+
+        // set the time we last requested the change
+        temp_wanted.set_send_time(rd_time);
+    }
+
+    void send_set_auto_mode(uint8_t addr, SyncedValue<bool> &auto_mode) {
+        // 2 bytes [A][xx] xx is in half degrees
+        SndPacket *p = sndQ.want_to_send_for(addr, 2);
+        if (!p) return;
+
+        p->push('M');
+        p->push(auto_mode.get_local() ? 1 : 0);
+
+        // set the time we last requested the change
+        auto_mode.set_send_time(rd_time);
+    }
+
+
     // ref to model of the network
     Model &model;
+
+    // encryption tools
+    crypto::Crypto &crypto;
+
+    // ref to packet queue responsible for packet retrieval for sending
+    SendQ &sndQ;
 
     // current read time
     time_t rd_time;
 };
 
-/// Implements the state machine for packet retrieval and radio control.
+/// Implements the state machine for packet sending/retrieval and radio control.
 template<typename HandlerT>
-struct Receiver {
-    Receiver(RFM12B &rfm, HandlerT handler) : rfm(rfm), handler(handler) {}
+struct Transceiver {
+    Transceiver(RFM12B &rfm, SendQ &queue, HandlerT handler) : rfm(rfm), queue(queue), handler(handler) {}
 
     void update() {
+        // only update the receiver if we're currently receiving
+        // - sending blocks recv
+        if (radio.isReceiving()) {
+            receive();
+        } else {
+            send();
+        }
+    }
+
+    void receive() {
         int b = rfm.recv();
 
         // no data on input means we just ignore
@@ -481,30 +593,47 @@ struct Receiver {
         }
     }
 
+    void send() {
+        int b = queue.peek();
+
+        if (b >= 0) {
+            if (radio.send(b))
+                queue.pop();
+        } else {
+            // no more data, recv again
+            wait_for_sync();
+        }
+    }
+
     void wait_for_sync() {
         packet.clear();
         radio.wait_for_sync();
     }
 
     RFM12B &rfm;
+    SendQ &queue;
     HandlerT handler;
-    Packet packet;
+    // received packet
+    RcvPacket packet;
     int length = 0;
 };
 
-// the main classes - they implement local cache, request tracking and synchronization
+// the main classes - they implement local cache, request tracking,
+// synchronization and packet queueing
 Model model;
-Protocol proto{model};
+SendQ queue(crypt);
+Protocol proto{model, crypt, queue};
 
 // helper that induces the template parameter based on argument
 template<typename HandlerT>
-Receiver<HandlerT> make_receiver(RFM12B &radio, HandlerT h) {
-    return Receiver<HandlerT>{radio, h};
+Transceiver<HandlerT> make_transceiver(RFM12B &radio, SendQ &queue, HandlerT h) {
+    return Transceiver<HandlerT>{radio, queue, h};
 }
 
 // receiver that calls the protocol handler with the packet after it's been
-// completely recieved.
-auto receiver = make_receiver(radio, [&](Packet &p) { proto.recieve(p); });
+// completely received.
+auto transciever =
+    make_transceiver(radio, queue, [&](RcvPacket &p) { proto.receive(p); });
 
 void loop(void) {
     radio.poll();
@@ -521,20 +650,15 @@ void loop(void) {
              crypt.rtc.ss == 30))
         {
             // send sync packet
+            // TODO: set force flags is we want to comm with a specific client
             // TODO: protocol.send_sync(crypt.rtc);
             --sync_count;
         }
 
-        if (crypt.rtc.ss == 30) {
-            // TODO: not sure if this is the right time to prepare send queues
-            protocol.fill_send_queues();
-        }
+        // right before the next minute starts...
+        if (crypt.rtc.ss == 59) protocol.fill_send_queues();
     }
 #endif
 
-    // only update the receiver if we're currently receiving
-    // - sending blocks recv
-    if (radio.isReceiving()) {
-        receiver.update();
-    }
+    transciever.update();
 }

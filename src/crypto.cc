@@ -3,7 +3,8 @@
 
 namespace crypto {
 
-void CMAC::calc_cmac(const uint8_t *data, size_t size, const uint8_t *prefix, uint8_t *buf)
+void CMAC::calc_cmac(const uint8_t *data, size_t size,
+                     const uint8_t *prefix, uint8_t *buf) const
 {
     XTEA xt(kmac);
 
@@ -54,7 +55,8 @@ static void roll(const uint8_t *src, uint8_t *dst) {
 }
 
 Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
-    : time(time)
+    : time(time),
+      cmac(K1, K2, Kmac)
 {
     // join pre-defined rfm_pass key + and hardcoded Km_upper
     uint8_t k_m[16];
