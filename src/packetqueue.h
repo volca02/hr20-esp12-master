@@ -5,15 +5,19 @@
 #include "crypto.h"
 #include "queue.h"
 
+constexpr const uint8_t PACKET_QUEUE_LEN = 32;
+constexpr const uint8_t SENT_PACKET_LEN = 76;
+
 // implements a packet queue
-template<uint8_t LenT, typename PacketT>
 struct PacketQ {
+    using Packet = ShortQ<SENT_PACKET_LEN>;
+
     enum SpecialAddrs : uint8_t {
         MASTER_ADDR = 0x00,
         SYNC_ADDR = 0xff
     };
 
-    PacketQ(crypto::Crypto &crypto, time_t packet_max_age)
+    ICACHE_FLASH_ATTR PacketQ(crypto::Crypto &crypto, time_t packet_max_age)
         : crypto(crypto), que(), packet_max_age(packet_max_age)
     {}
 
@@ -24,17 +28,17 @@ struct PacketQ {
         }
 
         int8_t  addr = -1;
-        PacketT packet;
+        Packet  packet;
         time_t  time;
     };
 
     /// insert into queue or return nullptr if full
     /// returns packet structure to be filled with data
-    PacketT *want_to_send_for(uint8_t addr, uint8_t bytes, time_t curtime) {
-        for (int i = 0; i < LenT; ++i) {
+    Packet * ICACHE_FLASH_ATTR want_to_send_for(uint8_t addr, uint8_t bytes, time_t curtime) {
+        for (int i = 0; i < PACKET_QUEUE_LEN; ++i) {
             // reverse index - we queue top first, send bottom first
             // to have fair queueing
-            int ri = LenT - 1 - i;
+            int ri = PACKET_QUEUE_LEN - 1 - i;
             Item &it = que[ri];
 
             if (it.addr == addr) {
@@ -59,10 +63,10 @@ struct PacketQ {
 
     // prepares queue to send data for address addr, if there's a
     // prepared packet present
-    void prepare_to_send_to(uint8_t addr) {
+    void ICACHE_FLASH_ATTR prepare_to_send_to(uint8_t addr) {
         if (sending) return;
 
-        for (unsigned i = 0; i < LenT; ++i) {
+        for (unsigned i = 0; i < PACKET_QUEUE_LEN; ++i) {
             Item &it = que[i];
             if (it.addr == addr) {
                 sending = &it;
@@ -87,7 +91,7 @@ struct PacketQ {
         }
     }
 
-    int peek() {
+    int ICACHE_FLASH_ATTR peek() {
         if (!sending) return -1;
 
         // first comes the prologue
@@ -103,7 +107,7 @@ struct PacketQ {
         return -1;
     }
 
-    void pop() {
+    void ICACHE_FLASH_ATTR pop() {
         if (!sending) return;
 
         if (!prologue.empty()) {
@@ -130,7 +134,7 @@ struct PacketQ {
     }
 
     crypto::Crypto &crypto;
-    Item que[LenT];
+    Item que[PACKET_QUEUE_LEN];
     Item *sending = nullptr;
     ShortQ<5> prologue; // stores sync-word and size
     ShortQ<4> cmac; // stores cmac for packet at sndIdx

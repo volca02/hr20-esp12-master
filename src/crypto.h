@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
 #include <cstdint>
+#include <Time.h>
 
 #include "queue.h"
 
@@ -13,7 +13,7 @@ namespace crypto {
 
 // simple block based xtea enc/dec
 struct XTEA {
-    static constexpr const size_t XTEA_BLOCK_SIZE = 8;
+    static constexpr const uint8_t  XTEA_BLOCK_SIZE = 8;
     static constexpr const uint32_t XTEA_DELTA = 0x09E3779B9;
 
     XTEA(const uint8_t *k) : key(reinterpret_cast<const uint32_t*>(k)) {}
@@ -40,8 +40,8 @@ struct XTEA {
     }
 
     // decrypts a block of 8 bytes using XTEA
-    void decrypt(const uint8_t *src,
-                 uint8_t *dst)
+    void ICACHE_FLASH_ATTR decrypt(const uint8_t *src,
+                                   uint8_t *dst)
     {
         const uint32_t* s = (const uint32_t*)src;
         uint32_t s0 = s[0];
@@ -66,15 +66,15 @@ protected:
 
 // cmac calculator, reimplementation of cmac.c
 struct CMAC {
-    CMAC(const uint8_t *k1,
-         const uint8_t *k2,
-         const uint8_t *kmac)
-         : k1(k1), k2(k2), kmac(kmac)
+    ICACHE_FLASH_ATTR CMAC(const uint8_t *k1,
+                           const uint8_t *k2,
+                           const uint8_t *kmac)
+        : k1(k1), k2(k2), kmac(kmac)
     {}
 
     // sets cmac to a given ShortQ
-    void compute(const uint8_t *data, size_t size, ShortQ<4> &cmac,
-                 const uint8_t *prefix = nullptr) const
+    void ICACHE_FLASH_ATTR compute(const uint8_t *data, uint8_t size, ShortQ<4> &cmac,
+                                   const uint8_t *prefix = nullptr) const
     {
         uint8_t buf[8];
         calc_cmac(data, size, prefix, buf);
@@ -83,7 +83,7 @@ struct CMAC {
     }
 
     // verifies 4 bytes after the specified buffer end for cmac signature
-    bool verify(const uint8_t *data, size_t size, const uint8_t *prefix = nullptr) const {
+    bool verify(const uint8_t *data, uint8_t size, const uint8_t *prefix = nullptr) const {
         uint8_t buf[8];
         calc_cmac(data, size, prefix, buf);
 
@@ -95,7 +95,7 @@ struct CMAC {
     }
 
 protected:
-    void calc_cmac(const uint8_t *data, size_t size, const uint8_t *prefix, uint8_t *buf) const;
+    void calc_cmac(const uint8_t *data, uint8_t size, const uint8_t *prefix, uint8_t *buf) const;
 
     const uint8_t *k1;
     const uint8_t *k2;
@@ -143,22 +143,22 @@ struct Crypto {
     // packet payload encrypt/decrypt function
     void encrypt_decrypt(uint8_t *data, unsigned size);
 
-    bool cmac_verify(const uint8_t *data, size_t size, bool isSync) {
-        return cmac.verify(
-                data, size,
-                isSync ? nullptr : rtc_bytes());
+    bool ICACHE_FLASH_ATTR cmac_verify(const uint8_t *data, size_t size,
+                                       bool isSync)
+    {
+        return cmac.verify(data, size, isSync ? nullptr : rtc_bytes());
     }
 
     // fills cmac for given packet
-    void cmac_fill(const uint8_t *data, size_t size,
-                   bool isSync, ShortQ<4> &tgt) const
+    void ICACHE_FLASH_ATTR cmac_fill(const uint8_t *data, size_t size,
+                                     bool isSync, ShortQ<4> &tgt) const
     {
         cmac.compute(data, size, tgt,
                      isSync ? nullptr : rtc_bytes());
 
     }
 
-    const uint8_t *rtc_bytes() const {
+    const uint8_t * ICACHE_FLASH_ATTR rtc_bytes() const {
         return reinterpret_cast<const uint8_t *>(&rtc);
     }
 };

@@ -40,13 +40,13 @@ struct ShortQ {
     // raw data access for packet storage
     uint8_t *data() { return buf; }
     const uint8_t *data() const { return buf; }
-    size_t size() const { return _top; }
+    uint8_t size() const { return _top; }
     void clear() {
         _pos = 0;
         _top = 0;
     }
 
-    size_t free_size() const {
+    uint8_t free_size() const {
         if (_top > LenT)
             return 0;
         return LenT - _top;
@@ -63,5 +63,5 @@ struct ShortQ {
         return true;
     }
 
-    uint8_t operator[](size_t idx) const { return buf[idx]; }
+    uint8_t operator[](uint8_t idx) const { return buf[idx]; }
 };

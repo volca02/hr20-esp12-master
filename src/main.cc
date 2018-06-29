@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <SPI.h>
 
 #include "queue.h"
 #include "crypto.h"
@@ -22,14 +21,11 @@
 // Sync count after RTC update.
 // 255 is OpenHR20 default. (122 minutes after time sync)
 // TODO: make time updates perpetual and resolve out of sync client issues
-#define SYNC_COUNT 255
+constexpr const uint8_t SYNC_COUNT = 255;
 
 // custom specified RFM password
 // TODO: set this via -DRFM_PASS macros for convenient customization, or allow setting this via some web interface
-constexpr const uint8_t rfm_pass[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
-
-// RTC with NTP synchronization
-ntptime::NTPTime time;
+constexpr const uint8_t RFM_PASS[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
 
 // sent packet definition...
 // RFM_FRAME_MAX is 80, we have to have enough space for that too
@@ -40,30 +36,13 @@ using RcvPacket = ShortQ<76>;
 // sent packet is shorter, as we hold cmac in an isolated place
 using SndPacket = ShortQ<76>;
 
-// this encompasses the encryption handling routines
-crypto::Crypto crypt{rfm_pass, time};
-
 // sending packet queue
-using SendQ = PacketQ<32, SndPacket>;
+using SendQ = PacketQ;
 
 // 10 minutes to resend the change request if we didn't yet get the value change confirmed
-const time_t RESEND_TIME = 10*60;
+constexpr const time_t RESEND_TIME = 10*60;
 
-RFM12B radio;
-
-void setup(void) {
-  Serial.begin(38400);
-
-  //this is perhaps useful for somtething (wifi, ntp) but not sure
-  randomSeed(micros());
-  setupWifi();
-
-  time.begin();
-
-  // also calls SPI.begin()!
-  radio.begin();
-}
-
+#ifdef DEBUG
 void HexDump(const char *prefix, const void *p, size_t size) {
     const char *ptr = reinterpret_cast<const char *>(p);
     DBGI("%s : [%d bytes] ", prefix, size);
@@ -72,13 +51,14 @@ void HexDump(const char *prefix, const void *p, size_t size) {
     }
     DBG(".");
 }
+#endif
 
 // read-only value that gets reported by HR20 (not set back, not changeable)
 template<typename T>
 struct CachedValue {
-    bool needs_read() const { return read_time == 0; }
-    void set_remote(T val, time_t when) { remote = val; read_time = when; }
-    T get_remote() const { return remote; }
+    bool ICACHE_FLASH_ATTR needs_read() const { return read_time == 0; }
+    void ICACHE_FLASH_ATTR set_remote(T val, time_t when) { remote = val; read_time = when; }
+    T ICACHE_FLASH_ATTR get_remote() const { return remote; }
 protected:
     time_t read_time = 0;
     T remote;
@@ -88,7 +68,7 @@ protected:
 // changes have to be written through to client.
 template<typename T>
 struct SyncedValue : public CachedValue<T> {
-    bool needs_write(time_t now) const {
+    bool ICACHE_FLASH_ATTR needs_write(time_t now) const {
         // don't try to update values if we don't they don't match
         // also don't re-send update before RESEND_TIME elapses
         // and of course don't send updates if the requested value
@@ -98,12 +78,12 @@ struct SyncedValue : public CachedValue<T> {
             && (local != this->remote);
     }
 
-    T get_local() const { return local; }
+    T ICACHE_FLASH_ATTR get_local() const { return local; }
 
-    void set_local(T val) { local = val; send_time = 0; }
+    void ICACHE_FLASH_ATTR set_local(T val) { local = val; send_time = 0; }
 
     // sets the time we tried to update remote last time
-    void set_send_time(time_t t) { send_time = t; }
+    void ICACHE_FLASH_ATTR set_send_time(time_t t) { send_time = t; }
 
 private:
     time_t send_time = 0;
@@ -153,7 +133,7 @@ struct HR20 {
 constexpr const uint8_t MAX_HR_COUNT = 32;
 
 struct Model {
-    HR20 *operator[](uint8_t idx) {
+    HR20 * ICACHE_FLASH_ATTR operator[](uint8_t idx) {
         if (idx >= MAX_HR_COUNT) {
             DBG(" ! Client address out of range");
             return nullptr;
@@ -178,7 +158,7 @@ struct Protocol {
     };
 
     /// verifies incoming packet, processes it accordingly
-    void receive(RcvPacket &packet) {
+    void ICACHE_FLASH_ATTR receive(RcvPacket &packet) {
         rd_time = now();
 
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
@@ -199,14 +179,14 @@ struct Protocol {
 
         // what is this magic used in original code?
         uint8_t cnt_offset = (packet.size() + 1) / 8;
-        crypt.rtc.pkt_cnt += cnt_offset;
+        crypto.rtc.pkt_cnt += cnt_offset;
 
         bool ver = crypto.cmac_verify(
             reinterpret_cast<const uint8_t *>(packet.data() + 1), data_size - 5,
             isSync);
 
         // restore the pkt_cnt
-        crypt.rtc.pkt_cnt -= cnt_offset;
+        crypto.rtc.pkt_cnt -= cnt_offset;
 
         DBG(" %s%s PACKET VERIFICATION %s",
             ver    ? "*"       : "!",
@@ -228,12 +208,12 @@ struct Protocol {
                 return;
             }
             // not a sync packet. we have to decode it
-            crypt.encrypt_decrypt(
+            crypto.encrypt_decrypt(
                     reinterpret_cast<uint8_t *>(packet.data()) + 2,
                     packet.size() - 6);
 
             // return the packet counter back
-            crypt.rtc.pkt_cnt++;
+            crypto.rtc.pkt_cnt++;
 
 #ifdef DEBUG
             HexDump(" * Decoded packet data", packet.data(), packet.size());
@@ -245,7 +225,7 @@ struct Protocol {
     }
 
     // call this in the right timespot (time to spare) to prepare commands to be sent to clients
-    void fill_send_queues() {
+    void ICACHE_FLASH_ATTR fill_send_queues() {
         for (unsigned i = 0; i < MAX_HR_COUNT; ++i) {
             HR20 *hr = model[i];
 
@@ -257,18 +237,17 @@ struct Protocol {
         }
     }
 
-    void update(time_t curtime, uint8_t seconds, bool changed_time) {
+    void ICACHE_FLASH_ATTR update(time_t curtime, uint8_t seconds, bool changed_time) {
         // clear
         if (seconds == 0) last_addr = 0xFF;
 
         // this whole class does not make much sense for clients,
         // it implements master logic...
-#ifndef CLIENT_MODE
         if (changed_time) sync_count = SYNC_COUNT;
 
         if (sync_count &&
-            (crypt.rtc.ss == 0 ||
-             crypt.rtc.ss == 30))
+            (crypto.rtc.ss == 0 ||
+             crypto.rtc.ss == 30))
         {
             // send sync packet
             // TODO: set force flags is we want to comm with a specific client
@@ -283,13 +262,12 @@ struct Protocol {
         // right before the next minute starts,
         // we diff the model and fill the queues
         if (seconds == 59) fill_send_queues();
-#endif
     }
 
 protected:
-    bool process_sync_packet(RcvPacket &packet) {
+    bool ICACHE_FLASH_ATTR process_sync_packet(RcvPacket &packet) {
         if (packet.size() < 1+4+4) {
-            Serial.println(" ! Sync packet too short");
+            ERR("Sync packet too short");
             return false;
         }
 
@@ -307,18 +285,17 @@ protected:
             decoded.DD, decoded.MM, decoded.YY,
             decoded.hh, decoded.mm, decoded.ss);
 
-#ifdef CLIENT_MODE
+#ifndef NTP_CLIENT
         // is this local time or what?
         DBG(" * Synchronizing time");
         setTime(decoded.hh, decoded.mm, decoded.ss, decoded.DD, decoded.MM, decoded.YY);
-        DBGI(" * "); time.printRTC();
 #endif
 
         return true;
     }
 
     // processes packet from clients, returns false on error
-    bool process_packet(RcvPacket &packet) {
+    bool ICACHE_FLASH_ATTR process_packet(RcvPacket &packet) {
         // owned by object to save on now() calls and param passes
         // before the main loop, we trim the packet's mac and first 2 bytes
         packet.pop(); // skip length
@@ -337,20 +314,10 @@ protected:
             bool resp = c & 0x80; // responses have highest bit set
             c &= 0x7f;
 
-#ifdef CLIENT_MODE
-            if (resp) {
-                // TODO:
-                /*
-                ERR("Slave can't process responses");
-                return false;
-                */
-            }
-#else
             if (!resp) {
                 ERR("Master can't process commands");
                 return false;
             }
-#endif
 
             switch (c) {
             case 'V':
@@ -388,12 +355,12 @@ protected:
         return err == OK;
     }
 
-    void on_failed_verify() {
+    void ICACHE_FLASH_ATTR on_failed_verify() {
         // TODO: Might immediately send sync as response to sync a stubborn HR20
         // with incompatible receive windows that does not hear normal Synces
     }
 
-    Error on_version(uint8_t addr, RcvPacket &p) {
+    Error ICACHE_FLASH_ATTR on_version(uint8_t addr, RcvPacket &p) {
         // spilled into serial if enabled, but othewise ignored
         // sequence of bytes terminated by \n
         while (1) {
@@ -419,7 +386,7 @@ protected:
         return OK;
     }
 
-    bool on_debug(uint8_t addr, RcvPacket &p) {
+    bool ICACHE_FLASH_ATTR on_debug(uint8_t addr, RcvPacket &p) {
         // 10 0a 44 27 1e 04 08 9f 0a 5a 23 1e 44 e0 8e 87 01
         // 16 bytes len, address 10
         // 44 == D
@@ -470,7 +437,7 @@ protected:
         return OK;
     }
 
-    bool on_timers(uint8_t addr, RcvPacket &p) {
+    bool ICACHE_FLASH_ATTR on_timers(uint8_t addr, RcvPacket &p) {
         if (p.size() < 3) {
             ERR("SHORT TMR");
             p.clear();
@@ -486,7 +453,7 @@ protected:
         return OK;
     }
 
-    bool on_eeprom(uint8_t addr, RcvPacket &p) {
+    bool ICACHE_FLASH_ATTR on_eeprom(uint8_t addr, RcvPacket &p) {
         if (p.size() < 2) {
             ERR("SHORT EEPROM");
             p.clear();
@@ -502,7 +469,7 @@ protected:
         return OK;
     }
 
-    bool on_menu_lock(uint8_t addr, RcvPacket &p) {
+    bool ICACHE_FLASH_ATTR on_menu_lock(uint8_t addr, RcvPacket &p) {
         if (p.size() < 1) {
             ERR("SHORT MLCK");
             p.clear();
@@ -520,7 +487,7 @@ protected:
         return OK;
     }
 
-    bool on_reboot(uint8_t addr, RcvPacket &p) {
+    bool ICACHE_FLASH_ATTR on_reboot(uint8_t addr, RcvPacket &p) {
         if (p.size() < 2) {
             ERR("SHORT REBOOT");
             p.clear();
@@ -537,16 +504,15 @@ protected:
         return OK;
     }
 
-    void queue_updates_for(uint8_t addr, HR20 &hr) {
+    void ICACHE_FLASH_ATTR queue_updates_for(uint8_t addr, HR20 &hr) {
         // wanted temperature
         if (hr.temp_wanted.needs_write(rd_time))
             send_set_temp(addr, hr.temp_wanted);
         if (hr.auto_mode.needs_write(rd_time))
             send_set_auto_mode(addr, hr.auto_mode);
-
     }
 
-    void send_set_temp(uint8_t addr, SyncedValue<uint8_t> &temp_wanted) {
+    void ICACHE_FLASH_ATTR send_set_temp(uint8_t addr, SyncedValue<uint8_t> &temp_wanted) {
         // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
@@ -558,7 +524,7 @@ protected:
         temp_wanted.set_send_time(rd_time);
     }
 
-    void send_set_auto_mode(uint8_t addr, SyncedValue<bool> &auto_mode) {
+    void ICACHE_FLASH_ATTR send_set_auto_mode(uint8_t addr, SyncedValue<bool> &auto_mode) {
         // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
@@ -570,7 +536,7 @@ protected:
         auto_mode.set_send_time(rd_time);
     }
 
-    void send_sync(time_t curtime) {
+    void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
         SndPacket *p = sndQ.want_to_send_for(SendQ::SYNC_ADDR, 4, curtime);
         if (!p) return;
 
@@ -602,11 +568,32 @@ protected:
 };
 
 /// Implements the state machine for packet sending/retrieval and radio control.
-template<typename HandlerT>
-struct Transceiver {
-    Transceiver(RFM12B &rfm, SendQ &queue, HandlerT handler) : rfm(rfm), queue(queue), handler(handler) {}
+struct HR20Master {
+    ICACHE_FLASH_ATTR HR20Master()
+        : time{},
+          crypt{RFM_PASS, time},
+          queue{crypt, RESEND_TIME},
+          proto{model, crypt, queue}
+    {}
 
-    void update() {
+    void ICACHE_FLASH_ATTR begin() {
+        time.begin();
+        radio.begin();
+    }
+
+    void ICACHE_FLASH_ATTR update() {
+        bool changed_time = time.update();
+        radio.poll();
+
+        // Note: could use [[maybe_unused]] in C++17
+        bool __attribute__((unused)) sec_pass = crypt.update(); // update the crypto rtc if needed
+
+        // TODO: if it's 00 or 30, we send sync
+        if (sec_pass) {
+            time_t curtime = time.localTime();
+            proto.update(curtime, crypt.rtc.ss, changed_time);
+        }
+
         // try to send anything currently queued
         if (send()) return;
         // send will do wait_for_sync causing the radio to recv if
@@ -614,8 +601,8 @@ struct Transceiver {
         if (radio.isReceiving()) receive();
     }
 
-    void receive() {
-        int b = rfm.recv();
+    void ICACHE_FLASH_ATTR receive() {
+        int b = radio.recv();
 
         // no data on input means we just ignore
         if (b < 0) return;
@@ -636,14 +623,14 @@ struct Transceiver {
             --length;
             if (!length) {
                 DBG(" * packet received. Will process");
-                handler(packet);
+                proto.receive(packet);
                 DBG("=== END OF PACKET PROCESSING ===");
                 wait_for_sync();
             }
         }
     }
 
-    bool send() {
+    bool ICACHE_FLASH_ATTR send() {
         int b = queue.peek();
 
         if (b >= 0) {
@@ -657,50 +644,37 @@ struct Transceiver {
         return false;
     }
 
-    void wait_for_sync() {
+    void ICACHE_FLASH_ATTR wait_for_sync() {
         packet.clear();
         radio.wait_for_sync();
     }
 
-    RFM12B &rfm;
-    SendQ &queue;
-    HandlerT handler;
+    // RTC with NTP synchronization
+    ntptime::NTPTime time;
+    crypto::Crypto crypt;
+    RFM12B radio;
+    SendQ queue;
+    Model model;
+    Protocol proto;
+
     // received packet
     RcvPacket packet;
     int length = 0;
 };
 
-// the main classes - they implement local cache, request tracking,
-// synchronization and packet queueing
-Model model;
-SendQ queue{crypt, RESEND_TIME};
-Protocol proto{model, crypt, queue};
 
-// helper that induces the template parameter based on argument
-template<typename HandlerT>
-Transceiver<HandlerT> make_transceiver(RFM12B &radio, SendQ &queue, HandlerT h) {
-    return Transceiver<HandlerT>{radio, queue, h};
+HR20Master master;
+
+void setup(void) {
+  Serial.begin(38400);
+
+  master.begin();
+
+  //this is perhaps useful for somtething (wifi, ntp) but not sure
+  randomSeed(micros());
+  setupWifi();
 }
 
-// receiver that calls the protocol handler with the packet after it's been
-// completely received.
-auto transciever =
-    make_transceiver(radio, queue, [&](RcvPacket &p) { proto.receive(p); });
-
 void loop(void) {
-    radio.poll();
-    bool changed_time = time.update();
-
-    // Note: could use [[maybe_unused]] in C++17
-    bool __attribute__((unused)) sec_pass = crypt.update(); // update the crypto rtc if needed
-
-    // TODO: if it's 00 or 30, we send sync
-    if (sec_pass) {
-#ifndef CLIENT_MODE
-        time_t curtime = time.localTime();
-        proto.update(curtime, crypt.rtc.ss, changed_time);
-#endif
-    }
-
-    transciever.update();
+    master.update();
 }

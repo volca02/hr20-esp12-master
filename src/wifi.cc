@@ -1,6 +1,6 @@
 #include "wifi.h"
 
-#ifdef CLIENT_MODE
+#ifndef WIFI_MGR
 
 void setupWifi() {
 }
@@ -11,9 +11,8 @@ void setupWifi() {
 
 WiFiManager wifiManager;
 
-void setupWifi()
+void ICACHE_FLASH_ATTR setupWifi()
 {
-
     //uncomment for testing
     //wifiManager.resetSettings();
     if (!wifiManager.autoConnect("OpenHR20 is not dead"))

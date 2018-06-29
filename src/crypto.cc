@@ -1,10 +1,12 @@
+#include <Arduino.h>
+
 #include "crypto.h"
 #include "ntptime.h"
 
 namespace crypto {
 
-void CMAC::calc_cmac(const uint8_t *data, size_t size,
-                     const uint8_t *prefix, uint8_t *buf) const
+void ICACHE_FLASH_ATTR CMAC::calc_cmac(const uint8_t *data, uint8_t size,
+                                       const uint8_t *prefix, uint8_t *buf) const
 {
     XTEA xt(kmac);
 
@@ -40,7 +42,7 @@ void CMAC::calc_cmac(const uint8_t *data, size_t size,
 const uint8_t Crypto::Km_upper[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
 
 /// rolls 8 byte key according to CMAC requirements
-static void roll(const uint8_t *src, uint8_t *dst) {
+static void ICACHE_FLASH_ATTR roll(const uint8_t *src, uint8_t *dst) {
     uint8_t pre = *(src + 7);
     const uint8_t *s = src;
     uint8_t *d = dst;
@@ -54,7 +56,7 @@ static void roll(const uint8_t *src, uint8_t *dst) {
     // omits that part, and so will we
 }
 
-Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
+ICACHE_FLASH_ATTR Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
     : time(time),
       cmac(K1, K2, Kmac)
 {
@@ -91,7 +93,7 @@ Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
     roll(K1, K2);
 }
 
-bool Crypto::update() {
+bool ICACHE_FLASH_ATTR Crypto::update() {
     time_t now = time.localTime();
     if (now != lastTime) {
         lastTime = now;
@@ -109,7 +111,7 @@ bool Crypto::update() {
     return false;
 }
 
-void Crypto::encrypt_decrypt(uint8_t *data, unsigned size) {
+void ICACHE_FLASH_ATTR Crypto::encrypt_decrypt(uint8_t *data, unsigned size) {
     XTEA xenc(Kenc);
 
     uint8_t i = 0;

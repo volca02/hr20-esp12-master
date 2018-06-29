@@ -1,14 +1,17 @@
 #pragma once
 
+#ifdef NTP_CLIENT
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Timezone.h>
+#endif
+
 #include <Time.h>
 
 namespace ntptime {
 
 struct NTPTime {
-#ifndef CLIENT_MODE
+#ifdef NTP_CLIENT
     /*** time management **/
     WiFiUDP ntpUDP;
 
@@ -26,7 +29,7 @@ struct NTPTime {
 
 
     NTPTime()
-#ifndef CLIENT_MODE
+#ifdef NTP_CLIENT
         : ntpUDP()
         , timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000)
         , tz(CEST, CET)
@@ -35,14 +38,14 @@ struct NTPTime {
 
 
     void begin() {
-#ifndef CLIENT_MODE
+#ifdef NTP_CLIENT
         timeClient.begin();
         timeInSync = timeClient.update();
 #endif
     }
 
     bool update() {
-#ifndef CLIENT_MODE
+#ifdef NTP_CLIENT
         if (!timeInSync) {
             timeInSync = timeClient.update();
             return timeInSync;
@@ -52,21 +55,13 @@ struct NTPTime {
     }
 
     time_t localTime() {
-#ifdef CLIENT_MODE
-        return now();
-#else
+#ifdef NTP_CLIENT
         TimeChangeRule *tcr; // pointer to the time change rule, use to get TZ abbrev
         time_t utc = timeClient.getEpochTime();
         return  tz.toLocal(utc, &tcr);
+#else
+        return now();
 #endif
-    }
-
-    void printRTC(){
-        time_t local = localTime();
-
-        Serial.printf("RTC: %02d.%02d.%02d %02d:%02d:%02d\r\n",
-                      day(local), month(local), year(local)-2000,
-                      hour(local), minute(local), second(local));
     }
 };
 

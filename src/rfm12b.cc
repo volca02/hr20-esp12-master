@@ -3,20 +3,20 @@
 
 // scoped object setting the correct SPI parameters and selecting our radio
 struct SPIScope {
-    SPIScope(const SPISettings &s) {
+    ICACHE_FLASH_ATTR SPIScope(const SPISettings &s) {
         // this is the setting to use with our RFM12 client
         SPI.beginTransaction(s);
         // pull SS pin low to select it, too
         digitalWrite(RFM_SS_PIN, LOW);
     }
 
-    ~SPIScope() {
+    ICACHE_FLASH_ATTR ~SPIScope() {
         digitalWrite(RFM_SS_PIN, HIGH);
         SPI.endTransaction();
     }
 };
 
-void RFM12B::begin() {
+void ICACHE_FLASH_ATTR RFM12B::begin() {
     SPI.begin();
 
     // set GPIO2 to be our NSEL pin
@@ -99,12 +99,12 @@ void RFM12B::begin() {
     wait_for_sync();
 }
 
-uint16_t RFM12B::readStatus() {
+uint16_t ICACHE_FLASH_ATTR RFM12B::readStatus() {
     return spi16(0x00);
 }
 
 
-int RFM12B::recv_byte() {
+int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
     guarantee_rx();
 
     auto st = readStatus();
@@ -116,7 +116,7 @@ int RFM12B::recv_byte() {
     return -1;
 }
 
-bool RFM12B::send_byte(unsigned char c) {
+bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
     guarantee_tx();
 
     // push out the byte
@@ -129,7 +129,7 @@ bool RFM12B::send_byte(unsigned char c) {
     return false;
 }
 
-void RFM12B::guarantee_rx() {
+void ICACHE_FLASH_ATTR RFM12B::guarantee_rx() {
     if (mode != RX) {
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
@@ -140,7 +140,7 @@ void RFM12B::guarantee_rx() {
     }
 }
 
-void RFM12B::guarantee_tx() {
+void ICACHE_FLASH_ATTR RFM12B::guarantee_tx() {
     if (mode != TX) {
         spi16(RFM_POWER_MANAGEMENT_DC |
               RFM_POWER_MANAGEMENT_ET |
@@ -150,13 +150,13 @@ void RFM12B::guarantee_tx() {
     }
 }
 
-void RFM12B::reset_fifo() {
+void ICACHE_FLASH_ATTR RFM12B::reset_fifo() {
     // (re)turn on FIFO to sync-word activation
     spi16(RFM_FIFO_IT(8) | RFM_FIFO_DR);
     spi16(RFM_FIFO_IT(8) | RFM_FIFO_FF | RFM_FIFO_DR);
 }
 
-uint16_t RFM12B::spi16(uint16_t reg) {
+uint16_t ICACHE_FLASH_ATTR RFM12B::spi16(uint16_t reg) {
     SPIScope scope(spi_settings);
     uint16_t res = SPI.transfer16(reg);
     return res;
