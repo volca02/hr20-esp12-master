@@ -7,6 +7,8 @@ void setupWifi() {
 
 #else
 
+#include <WiFiManager.h>
+
 WiFiManager wifiManager;
 
 void setupWifi()

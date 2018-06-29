@@ -257,6 +257,35 @@ struct Protocol {
         }
     }
 
+    void update(time_t curtime, uint8_t seconds, bool changed_time) {
+        // clear
+        if (seconds == 0) last_addr = 0xFF;
+
+        // this whole class does not make much sense for clients,
+        // it implements master logic...
+#ifndef CLIENT_MODE
+        if (changed_time) sync_count = SYNC_COUNT;
+
+        if (sync_count &&
+            (crypt.rtc.ss == 0 ||
+             crypt.rtc.ss == 30))
+        {
+            // send sync packet
+            // TODO: set force flags is we want to comm with a specific client
+            send_sync(curtime);
+
+            // and immediately prepare to send it
+            sndQ.prepare_to_send_to(SendQ::SYNC_ADDR);
+
+            --sync_count;
+        }
+
+        // right before the next minute starts,
+        // we diff the model and fill the queues
+        if (seconds == 59) fill_send_queues();
+#endif
+    }
+
 protected:
     bool process_sync_packet(RcvPacket &packet) {
         if (packet.size() < 1+4+4) {
@@ -553,35 +582,6 @@ protected:
         p->push(rtc.mm << 1 | (rtc.ss == 30 ? 1 : 0));
     }
 
-    void update(time_t curtime, uint8_t seconds, bool changed_time) {
-        // clear
-        if (seconds == 0) last_addr = 0xFF;
-
-        // this whole class does not make much sense for clients,
-        // it implements master logic...
-#ifndef CLIENT_MODE
-        if (changed_time) sync_count = SYNC_COUNT;
-
-        if (sync_count &&
-            (crypt.rtc.ss == 0 ||
-             crypt.rtc.ss == 30))
-        {
-            // send sync packet
-            // TODO: set force flags is we want to comm with a specific client
-            send_sync(curtime);
-
-            // and immediately prepare to send it
-            sndQ.prepare_to_send_to(SndQ::SYNC_ADDR);
-
-            --sync_count;
-        }
-
-        // right before the next minute starts,
-        // we diff the model and fill the queues
-        if (seconds == 59) protocol.fill_send_queues();
-#endif
-    }
-
     // ref to model of the network
     Model &model;
 
@@ -698,7 +698,7 @@ void loop(void) {
     if (sec_pass) {
 #ifndef CLIENT_MODE
         time_t curtime = time.localTime();
-        protocol.update(curtime, crypt.rtc.ss, changed_time);
+        proto.update(curtime, crypt.rtc.ss, changed_time);
 #endif
     }
 
