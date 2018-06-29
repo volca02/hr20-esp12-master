@@ -33,7 +33,10 @@ ntptime::NTPTime time;
 
 // sent packet definition...
 // RFM_FRAME_MAX is 80, we have to have enough space for that too
-using RcvPacket = ShortQ<80>;
+// NOTE: Technically both can be 76, since the RcvPacket does not contain
+// prologue (0xaa, 0xaa, 0x2d, 0xd4 that gets eaten by the radio as sync-word)
+// that does not apply to OpenHR20 since it shares send/recv buffer in one.
+using RcvPacket = ShortQ<76>;
 // sent packet is shorter, as we hold cmac in an isolated place
 using SndPacket = ShortQ<76>;
 
@@ -81,7 +84,8 @@ protected:
     T remote;
 };
 
-// implements a pair of values - local/remote
+// implements a pair of values - local/remote, that is used to detect
+// changes have to be written through to client.
 template<typename T>
 struct SyncedValue : public CachedValue<T> {
     bool needs_write(time_t now) const {
@@ -515,7 +519,7 @@ protected:
 
     void send_set_temp(uint8_t addr, SyncedValue<uint8_t> &temp_wanted) {
         // 2 bytes [A][xx] xx is in half degrees
-        SndPacket *p = sndQ.want_to_send_for(addr, 2);
+        SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
 
         p->push('A');
@@ -527,7 +531,7 @@ protected:
 
     void send_set_auto_mode(uint8_t addr, SyncedValue<bool> &auto_mode) {
         // 2 bytes [A][xx] xx is in half degrees
-        SndPacket *p = sndQ.want_to_send_for(addr, 2);
+        SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
 
         p->push('M');
@@ -537,8 +541,8 @@ protected:
         auto_mode.set_send_time(rd_time);
     }
 
-    void send_sync() {
-        SndPacket *p = sndQ.want_to_send_for(0, 4);
+    void send_sync(time_t curtime) {
+        SndPacket *p = sndQ.want_to_send_for(SendQ::SYNC_ADDR, 4, curtime);
         if (!p) return;
 
         // TODO: force flags, if needed!
@@ -549,7 +553,7 @@ protected:
         p->push(rtc.mm << 1 | (rtc.ss == 30 ? 1 : 0));
     }
 
-    void update(uint8_t seconds, bool changed_time) {
+    void update(time_t curtime, uint8_t seconds, bool changed_time) {
         // clear
         if (seconds == 0) last_addr = 0xFF;
 
@@ -564,9 +568,10 @@ protected:
         {
             // send sync packet
             // TODO: set force flags is we want to comm with a specific client
-            send_sync();
+            send_sync(curtime);
+
             // and immediately prepare to send it
-            sndQ.prepare_to_send_to(0);
+            sndQ.prepare_to_send_to(SndQ::SYNC_ADDR);
 
             --sync_count;
         }
@@ -668,7 +673,7 @@ struct Transceiver {
 // the main classes - they implement local cache, request tracking,
 // synchronization and packet queueing
 Model model;
-SendQ queue(crypt);
+SendQ queue{crypt, RESEND_TIME};
 Protocol proto{model, crypt, queue};
 
 // helper that induces the template parameter based on argument
@@ -692,7 +697,8 @@ void loop(void) {
     // TODO: if it's 00 or 30, we send sync
     if (sec_pass) {
 #ifndef CLIENT_MODE
-        protocol.update(crypt.rtc.ss, changed_time);
+        time_t curtime = time.localTime();
+        protocol.update(curtime, crypt.rtc.ss, changed_time);
 #endif
     }
 

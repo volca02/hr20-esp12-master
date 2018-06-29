@@ -8,23 +8,29 @@
 // implements a packet queue
 template<uint8_t LenT, typename PacketT>
 struct PacketQ {
-    PacketQ(crypto::Crypto &crypto) : crypto(crypto), que() {}
+    enum SpecialAddrs : uint8_t {
+        MASTER_ADDR = 0x00,
+        SYNC_ADDR = 0xff
+    };
+
+    PacketQ(crypto::Crypto &crypto, time_t packet_max_age)
+        : crypto(crypto), que(), packet_max_age(packet_max_age)
+    {}
 
     struct Item {
         void clear() {
             addr = -1;
-            sync = false;
             packet.clear();
         }
 
         int8_t  addr = -1;
-        bool    sync;
         PacketT packet;
+        time_t  time;
     };
 
     /// insert into queue or return nullptr if full
     /// returns packet structure to be filled with data
-    PacketT *want_to_send_for(uint8_t addr, uint8_t bytes, bool sync = false) {
+    PacketT *want_to_send_for(uint8_t addr, uint8_t bytes, time_t curtime) {
         for (int i = 0; i < LenT; ++i) {
             // reverse index - we queue top first, send bottom first
             // to have fair queueing
@@ -36,13 +42,13 @@ struct PacketQ {
                     return &it.packet;
             }
 
-
-            if (it.addr == -1) {
+            // free spot or too old packet
+            if ((it.addr == -1) || (it.time + packet_max_age < curtime)) {
                 it.addr = addr;
-                it.sync = sync;
+                it.time = curtime;
                 // every non-sync packet starts with addr
                 // which is contained in cmac calculation
-                if (!sync) it.packet.push(addr);
+                if (addr != SYNC_ADDR) it.packet.push(addr);
                 return &it.packet;
             }
         }
@@ -72,9 +78,9 @@ struct PacketQ {
                 prologue.push(0x2d); // 2 byte sync word
                 prologue.push(0xd4);
                 // length, highest byte indicates sync word
-                prologue.push(it.packet.size() | (it.sync ? 0x80 : 0x00));
+                prologue.push(it.packet.size() | ((it.addr == SYNC_ADDR) ? 0x80 : 0x00));
                 // non-sync packets have to be encrypted as well
-                if (!it.sync)
+                if (it.addr != SYNC_ADDR)
                     crypto.encrypt_decrypt(it.packet.data(), it.packet.size());
                 return;
             }
@@ -128,4 +134,5 @@ struct PacketQ {
     Item *sending = nullptr;
     ShortQ<5> prologue; // stores sync-word and size
     ShortQ<4> cmac; // stores cmac for packet at sndIdx
+    time_t packet_max_age;
 };
