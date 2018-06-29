@@ -602,13 +602,11 @@ struct Transceiver {
     Transceiver(RFM12B &rfm, SendQ &queue, HandlerT handler) : rfm(rfm), queue(queue), handler(handler) {}
 
     void update() {
-        // only update the receiver if we're currently receiving
-        // - sending blocks recv
-        if (radio.isReceiving()) {
-            receive();
-        } else {
-            send();
-        }
+        // try to send anything currently queued
+        if (send()) return;
+        // send will do wait_for_sync causing the radio to recv if
+        // we're out of data.
+        if (radio.isReceiving()) receive();
     }
 
     void receive() {
@@ -640,16 +638,18 @@ struct Transceiver {
         }
     }
 
-    void send() {
+    bool send() {
         int b = queue.peek();
 
         if (b >= 0) {
             if (radio.send(b))
                 queue.pop();
-        } else {
-            // no more data, recv again
-            wait_for_sync();
+            return true; // has some data to send still
         }
+
+        // no more data, recv again
+        wait_for_sync();
+        return false;
     }
 
     void wait_for_sync() {
