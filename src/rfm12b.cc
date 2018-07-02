@@ -1,32 +1,56 @@
+// #include <interrupts.h>
+
 #include "rfm12b.h"
 #include "rfmdef.h"
+#include "debug.h"
+
+RFM12B *RFM12B::irq_instance = nullptr;
 
 // scoped object setting the correct SPI parameters and selecting our radio
 struct SPIScope {
-    ICACHE_FLASH_ATTR SPIScope(const SPISettings &s) {
+    SPIScope(const SPISettings &s) {
         // this is the setting to use with our RFM12 client
         SPI.beginTransaction(s);
         // pull SS pin low to select it, too
         digitalWrite(RFM_SS_PIN, LOW);
     }
 
-    ICACHE_FLASH_ATTR ~SPIScope() {
+    ~SPIScope() {
         digitalWrite(RFM_SS_PIN, HIGH);
         SPI.endTransaction();
     }
 };
 
-void ICACHE_FLASH_ATTR RFM12B::begin() {
+void RFM12B::begin() {
     SPI.begin();
 
     // set GPIO2 to be our NSEL pin
     pinMode(RFM_SS_PIN, OUTPUT);
     digitalWrite(RFM_SS_PIN, HIGH);
 
+    // prepare the NIRQ pin
+    pinMode(RFM_NIRQ_PIN, INPUT_PULLUP);
+
+    if (irq_instance != nullptr) {
+        ERR("Multiple registrations for RFM");
+    } else {
+        irq_instance = this;
+
+        // attach the interrupt
+        attachInterrupt(
+                digitalPinToInterrupt(RFM_NIRQ_PIN),
+                &RFM12B::rfm_interrupt_handler,
+                FALLING);
+    }
+
     // the rest of this ctor is just stock initialization as
     // copied from OpenHR20's rfm.c initialization routine
     readStatus();
     readStatus();
+
+    // write some bogus data to fill the TX input while we set the radio up
+    spi16(RFM_TX_WRITE_CMD | 0xAA);
+    spi16(RFM_TX_WRITE_CMD | 0xAA);
 
     spi16(
             RFM_CONFIG_EL                  |
@@ -47,7 +71,7 @@ void ICACHE_FLASH_ATTR RFM12B::begin() {
 
     // 5. Receiver Control Command
     spi16(
-            RFM_RX_CONTROL_P20_VDI  |
+            RFM_RX_CONTROL_P20_VDI  |   // 0x9400
             RFM_RX_CONTROL_VDI_FAST |
             RFM_RX_CONTROL_BW(RFM_BAUD_RATE) |
             RFM_RX_CONTROL_GAIN_14   |
@@ -96,7 +120,7 @@ void ICACHE_FLASH_ATTR RFM12B::begin() {
     );
 
     // default is to be waiting for sync word
-    wait_for_sync();
+    guarantee_idle();
 }
 
 uint16_t ICACHE_FLASH_ATTR RFM12B::readStatus() {
@@ -105,10 +129,13 @@ uint16_t ICACHE_FLASH_ATTR RFM12B::readStatus() {
 
 
 int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
-    guarantee_rx();
+    // can't receive in TX mode
+    if (mode == TX) return -2;
 
     auto st = readStatus();
     if (st & RFM_STATUS_FFIT) {
+        // forced RX as the radio woken up from IDLE for sure
+        mode = RX;
         auto b = spi16(RFM_FIFO_READ);
         return ((uint16_t)b & 0x00FF);
     }
@@ -118,18 +145,11 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
 
 bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
     guarantee_tx();
-
-    // push out the byte
-    auto st = readStatus();
-    if (st & RFM_STATUS_FFIT) {
-        spi16(0xB800 | ((c) & 0xFF));
-        return true;
-    }
-
-    return false;
+    spi16(RFM_TX_WRITE_CMD | ((c) & 0xFF));
+    return true;
 }
 
-void ICACHE_FLASH_ATTR RFM12B::guarantee_rx() {
+void RFM12B::guarantee_rx() {
     if (mode != RX) {
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
@@ -140,7 +160,12 @@ void ICACHE_FLASH_ATTR RFM12B::guarantee_rx() {
     }
 }
 
-void ICACHE_FLASH_ATTR RFM12B::guarantee_tx() {
+void RFM12B::guarantee_tx() {
+    if (out.empty()) {
+        ERR("SND NO DATA");
+        return;
+    }
+
     if (mode != TX) {
         spi16(RFM_POWER_MANAGEMENT_DC |
               RFM_POWER_MANAGEMENT_ET |
@@ -150,14 +175,64 @@ void ICACHE_FLASH_ATTR RFM12B::guarantee_tx() {
     }
 }
 
-void ICACHE_FLASH_ATTR RFM12B::reset_fifo() {
-    // (re)turn on FIFO to sync-word activation
-    spi16(RFM_FIFO_IT(8) | RFM_FIFO_DR);
-    spi16(RFM_FIFO_IT(8) | RFM_FIFO_FF | RFM_FIFO_DR);
+void RFM12B::guarantee_idle() {
+    if (mode != IDLE) {
+        spi16(RFM_POWER_MANAGEMENT_DC  |
+              RFM_POWER_MANAGEMENT_ER  |
+              RFM_POWER_MANAGEMENT_EBB |
+              RFM_POWER_MANAGEMENT_ES  |
+              RFM_POWER_MANAGEMENT_EX);
+
+        // (re)turn on FIFO to sync-word activation
+        spi16(RFM_FIFO_IT(8) | RFM_FIFO_DR);
+        spi16(RFM_FIFO_IT(8) | RFM_FIFO_FF | RFM_FIFO_DR);
+
+        in.clear();
+        mode = IDLE;
+    }
 }
 
-uint16_t ICACHE_FLASH_ATTR RFM12B::spi16(uint16_t reg) {
+uint16_t RFM12B::spi16(uint16_t reg) {
     SPIScope scope(spi_settings);
     uint16_t res = SPI.transfer16(reg);
     return res;
+}
+
+// NOTE: Not using ICACHE_RAM_ATTR as it seems to cause Exception 0
+// Just skipping the ICACHE_FLASH_ATTR is enough for this to work
+void RFM12B::rfm_interrupt_handler() {
+    if (irq_instance) irq_instance->on_interrupt();
+}
+
+void RFM12B::on_interrupt() {
+    // Interrupt handler
+    auto st = spi16(RFM_STATUS_CMD);
+
+    if (mode == TX) {
+        // this might happen, just send dummy trailing data
+        if (out.empty()) {
+            // just send some dummy data
+            spi16(RFM_TX_WRITE_CMD | 0xAA);
+            // and switch to idle
+            guarantee_idle();
+            return;
+        }
+
+        // ready to get send another byte
+        if (st & RFM_STATUS_RGIT) {
+            auto c = out.pop();
+            spi16(RFM_TX_WRITE_CMD | (c & 0xFF));
+        }
+
+        if (out.empty()) {
+            guarantee_idle();
+            return;
+        }
+    } else { // RX or IDLE
+        if (st & RFM_STATUS_FFIT) {
+            mode = RX; // if it were IDLE, it's not any more
+            auto b = spi16(RFM_FIFO_READ);
+            in.push(b & 0x00FF);
+        }
+    }
 }

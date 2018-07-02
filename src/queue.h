@@ -3,10 +3,12 @@
 #include <cstdint>
 
 // implements byte FIFO queue of fixed max size.
+// NOTE: Not using ICACHE_FLASH_ATTR here as this gets used from ISR too
 template<uint8_t LenT>
 struct ShortQ {
     uint8_t buf[LenT];
-    uint8_t _pos = 0, _top = 0;
+    // volatile as we're handling these from interrupt too
+    volatile uint8_t _pos = 0, _top = 0;
 
     bool push(uint8_t c) {
         if (full()) return false;

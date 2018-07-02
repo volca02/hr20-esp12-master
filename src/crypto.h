@@ -73,7 +73,8 @@ struct CMAC {
     {}
 
     // sets cmac to a given ShortQ
-    void ICACHE_FLASH_ATTR compute(const uint8_t *data, uint8_t size, ShortQ<4> &cmac,
+    template<uint8_t CNT>
+    void ICACHE_FLASH_ATTR compute(const uint8_t *data, uint8_t size, ShortQ<CNT> &cmac,
                                    const uint8_t *prefix = nullptr) const
     {
         uint8_t buf[8];
@@ -150,8 +151,9 @@ struct Crypto {
     }
 
     // fills cmac for given packet
+    template<uint8_t CNT>
     void ICACHE_FLASH_ATTR cmac_fill(const uint8_t *data, size_t size,
-                                     bool isSync, ShortQ<4> &tgt) const
+                                     bool isSync, ShortQ<CNT> &tgt) const
     {
         cmac.compute(data, size, tgt,
                      isSync ? nullptr : rtc_bytes());

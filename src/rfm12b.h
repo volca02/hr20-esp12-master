@@ -3,10 +3,13 @@
 #include <Arduino.h>
 #include <SPI.h>
 
+#include "debug.h"
 #include "queue.h"
 
 // RFM is wired as SPI client, with GPIO2 being used as the select pin
-#define RFM_SS_PIN 2
+constexpr const uint8_t RFM_SS_PIN = 2;
+// GPIO5 is connected to NIRQ to push/pull bytes
+constexpr const uint8_t RFM_NIRQ_PIN = 5;
 
 /*
  * A simple interface to RFM12B
@@ -16,15 +19,15 @@ struct RFM12B {
 
     enum Mode {
         NONE = 0,
-        RX = 1,
-        TX = 2
+        IDLE = 1,
+        RX   = 2,
+        TX   = 3
     };
 
-    Mode mode;
+    volatile Mode mode;
 
     RFM12B()
-        // we use 500kHz SPI freq. Even 2M should work, though
-        : spi_settings(500000L, MSBFIRST, SPI_MODE0)
+        : spi_settings(2000000L, MSBFIRST, SPI_MODE0)
         // default to NONE, so both TX and RX operations switch the accordingly
         , mode(NONE)
     {}
@@ -34,10 +37,7 @@ struct RFM12B {
     /// call this to reset to receiver mode, sync-word activation
     /// (after packet was sent/received whole)
     void wait_for_sync() {
-        reset_fifo();
-
-        // turn on RX
-        guarantee_rx();
+        guarantee_idle();
     }
 
     /// -1 if no data is present, >= 0 received byte
@@ -49,6 +49,9 @@ struct RFM12B {
     }
 
     /// enqueues a character to be sent. returns false if fifo's full
+    /// @note FILL the whole buffer in one go, or at least enough
+    /// for the ISR based sending routine not to underrun. poll() call
+    /// *will* switch to TX when IDLE and there are bytes to send.
     bool send(char c) {
         if (out.full())
             return false;
@@ -65,22 +68,46 @@ struct RFM12B {
     /// synchronous polling routine that sends and/or receives one byte a time
     /// to be called from the main loop
     void poll() {
-        // any data to send?
-        if (!out.empty()) {
+        // if we're idle and there are data in the out queue, we switch to TX
+        if (mode == IDLE && !out.empty()) {
+            DBG("WILL SEND");
+            guarantee_tx();
+        }
+
+        /*
+        // switch to IRQ based sending mode if needed/possible
+        if (mode != RX && !out.empty()) {
+            guarantee_tx();
+            return;
+        }
+
+        // no more data in queue means we can switch to idle now
+        if (mode == TX && out.empty()) {
+            guarantee_idle();
+            return;
+        }
+
+        // any data to send? Check if we're done receiving first
+        if ((mode != RX) && !out.empty()) {
             if (send_byte(out.peek()))
                 out.pop();
 
-            // do not attempt to read if there are data to be sent.
+            // switch to idle - wait for incoming data now
+            if (out.empty()) guarantee_idle();
             return;
         }
 
         // don't overfill the input queue!
         if (in.full()) return;
 
+        // this will poll the radio if it has any data. it will be silent in IDLE
+        // mode. recv_byte will switch to RX after it gets some.
         auto r = recv_byte();
         if (r >= 0) in.push((char)r);
+        */
     }
 
+    bool isIdle() const { return mode == IDLE; }
     bool isSending() const { return mode == TX; }
     bool isReceiving() const { return mode == RX; }
 
@@ -103,9 +130,17 @@ protected:
     void guarantee_tx();
 
     /// resets the fifo to sync-word activation
-    void reset_fifo();
+    void guarantee_idle();
 
     /// does the SPI xfer for 16 bits while selecting the rfm12b chip by pulling
     /// down the RFM_SS_PIN
     uint16_t spi16(uint16_t reg);
+
+    // callback from interrupt that handles the TX/RX as needed
+    void on_interrupt();
+
+    // TODO: make a singleton out of this class, since we're singleton on irq
+    // anyway
+    static RFM12B *irq_instance;
+    static void rfm_interrupt_handler();
 };

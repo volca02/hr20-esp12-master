@@ -6,17 +6,7 @@
 #include "rfm12b.h"
 #include "wifi.h"
 #include "ntptime.h"
-
-#ifdef DEBUG
-#define DBGI(...) do { Serial.printf(__VA_ARGS__); } while (0)
-#define DBG(...) do { Serial.printf(__VA_ARGS__); Serial.println(); } while (0)
-// TODO: BETTER ERROR REPORTING
-#define ERR(...) do { Serial.write("! ERR "); Serial.printf(__VA_ARGS__); Serial.println(); } while (0)
-#else
-#define DBGI(...) do { } while (0)
-#define DBG(...) do { } while (0)
-#define ERR(...) do { } while (0)
-#endif
+#include "debug.h"
 
 // Sync count after RTC update.
 // 255 is OpenHR20 default. (122 minutes after time sync)
@@ -41,17 +31,6 @@ using SendQ = PacketQ;
 
 // 10 minutes to resend the change request if we didn't yet get the value change confirmed
 constexpr const time_t RESEND_TIME = 10*60;
-
-#ifdef DEBUG
-void HexDump(const char *prefix, const void *p, size_t size) {
-    const char *ptr = reinterpret_cast<const char *>(p);
-    DBGI("%s : [%d bytes] ", prefix, size);
-    for(;size;++ptr,--size) {
-        DBGI("%02x ", (uint8_t)*ptr);
-    }
-    DBG(".");
-}
-#endif
 
 // read-only value that gets reported by HR20 (not set back, not changeable)
 template<typename T>
@@ -148,7 +127,7 @@ protected:
 // implements send/receive of the OpenHR20 protocol
 struct Protocol {
     Protocol(Model &m, crypto::Crypto &crypto, SendQ &sndQ)
-        : model(m), crypto(crypto), sndQ(sndQ)
+        : model(m), crypto(crypto), sndQ(sndQ), sync_count(SYNC_COUNT)
     {}
 
     // bitfield
@@ -162,6 +141,7 @@ struct Protocol {
         rd_time = now();
 
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
+        hex_dump("PKT", packet.data(), packet.size());
 
         size_t data_size = packet.size() - 1;
 
@@ -216,7 +196,7 @@ struct Protocol {
             crypto.rtc.pkt_cnt++;
 
 #ifdef DEBUG
-            HexDump(" * Decoded packet data", packet.data(), packet.size());
+            hex_dump(" * Decoded packet data", packet.data(), packet.size());
 #endif
             if (!process_packet(packet)) {
                 ERR("packet processing failed");
@@ -226,6 +206,7 @@ struct Protocol {
 
     // call this in the right timespot (time to spare) to prepare commands to be sent to clients
     void ICACHE_FLASH_ATTR fill_send_queues() {
+        DBG(" * fill send queues");
         for (unsigned i = 0; i < MAX_HR_COUNT; ++i) {
             HR20 *hr = model[i];
 
@@ -233,13 +214,16 @@ struct Protocol {
             if (hr->last_contact == 0) continue; // not yet seen client
 
             // we might have some changes to queue
+            DBG("   * fill %u", i);
             queue_updates_for(i, *hr);
         }
     }
 
-    void ICACHE_FLASH_ATTR update(time_t curtime, uint8_t seconds, bool changed_time) {
+    void ICACHE_FLASH_ATTR update(time_t curtime,
+                                  bool changed_time)
+    {
         // clear
-        if (seconds == 0) last_addr = 0xFF;
+        if (crypto.rtc.ss == 0) last_addr = 0xFF;
 
         // this whole class does not make much sense for clients,
         // it implements master logic...
@@ -249,6 +233,7 @@ struct Protocol {
             (crypto.rtc.ss == 0 ||
              crypto.rtc.ss == 30))
         {
+            DBG(" * sync %d", crypto.rtc.ss);
             // send sync packet
             // TODO: set force flags is we want to comm with a specific client
             send_sync(curtime);
@@ -261,7 +246,7 @@ struct Protocol {
 
         // right before the next minute starts,
         // we diff the model and fill the queues
-        if (seconds == 59) fill_send_queues();
+        if (crypto.rtc.ss == 59) fill_send_queues();
     }
 
 protected:
@@ -348,7 +333,8 @@ protected:
         // inform send queue that we can send data for addr if we have any
         // we limit to one packet to each client every minute by this logic
         if (last_addr != addr) {
-            sndQ.prepare_to_send_to(addr);
+            bool haveData = sndQ.prepare_to_send_to(addr);
+            DBG(" * prep: %s for %d", haveData ? "packet" : "nothing", addr);
             last_addr = addr;
         }
 
@@ -546,6 +532,11 @@ protected:
         p->push(rtc.MM << 4 | (rtc.DD >> 3));
         p->push((rtc.DD << 5) | rtc.hh);
         p->push(rtc.mm << 1 | (rtc.ss == 30 ? 1 : 0));
+
+        // TODO: flags
+        p->push(0x00);
+        p->push(0x00);
+        p->push(0xa3); // not sure what this is
     }
 
     // ref to model of the network
@@ -561,7 +552,7 @@ protected:
     // every minute
     uint8_t last_addr = 0xFF;
 
-    int sync_count = 0;
+    int sync_count = SYNC_COUNT;
 
     // current read time
     time_t rd_time;
@@ -590,15 +581,14 @@ struct HR20Master {
 
         // TODO: if it's 00 or 30, we send sync
         if (sec_pass) {
+            DBG("(%d)", crypt.rtc.ss);
             time_t curtime = time.localTime();
-            proto.update(curtime, crypt.rtc.ss, changed_time);
+            proto.update(curtime, changed_time);
         }
 
-        // try to send anything currently queued
-        if (send()) return;
-        // send will do wait_for_sync causing the radio to recv if
-        // we're out of data.
-        if (radio.isReceiving()) receive();
+        // send data/receive data as appropriate
+        send();
+        receive();
     }
 
     void ICACHE_FLASH_ATTR receive() {
@@ -606,6 +596,8 @@ struct HR20Master {
 
         // no data on input means we just ignore
         if (b < 0) return;
+
+        DBGI("R");
 
         if (!packet.push(b)) {
             ERR("packet exceeds maximal length. Discarding");
@@ -631,17 +623,25 @@ struct HR20Master {
     }
 
     bool ICACHE_FLASH_ATTR send() {
-        int b = queue.peek();
+        while (true) {
+            int b = queue.peek();
 
-        if (b >= 0) {
-            if (radio.send(b))
-                queue.pop();
-            return true; // has some data to send still
+            if (b >= 0) {
+                if (radio.send(b)) {
+                    if (!queue.pop()) {
+                        // no more data... radio will switch
+                        // to idle after it's done sending...
+                        return false;
+                    }
+                } else {
+                    // come back after the radio gets free
+                    return true;
+                }
+            } else {
+                // no more data...
+                return false;
+            }
         }
-
-        // no more data, recv again
-        wait_for_sync();
-        return false;
     }
 
     void ICACHE_FLASH_ATTR wait_for_sync() {
@@ -664,16 +664,17 @@ struct HR20Master {
 
 
 HR20Master master;
+int last_int = 1;
 
 void setup(void) {
-  Serial.begin(38400);
+    Serial.begin(38400);
+    master.begin();
 
-  master.begin();
-
-  //this is perhaps useful for somtething (wifi, ntp) but not sure
-  randomSeed(micros());
-  setupWifi();
+    //this is perhaps useful for somtething (wifi, ntp) but not sure
+    randomSeed(micros());
+    setupWifi();
 }
+
 
 void loop(void) {
     master.update();
