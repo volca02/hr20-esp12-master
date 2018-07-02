@@ -2,7 +2,7 @@
 
 Re-implementation (with different features) of the master portion of OpenHR20 wireless project.
 
-This project aims to be a reimplementation of the master portion of the RFM12 based OpenHR20 variant. 
+This project aims to be a reimplementation of the master portion of the RFM12 based OpenHR20 variant.
 Compared to that project's master implementation, this one aims to connect RFM12 directly to ESP8266
 and thus enable the network of HR20s to be visible on MQTT or via WEB interface, without the need of
 a PC or other computer connected to the master arduino.
@@ -14,16 +14,17 @@ HR20 messages, and become the master in the network. After that, the current pla
 the HR20 settings locally in RAM of the ESP master, and enable IOT like control of the HR20 network.
 
 ## HW configuration
-The RFM12 is connected to ESP via the SPI interface, with SS/NSEL being connected to GPIO2.
+The RFM12 is connected to ESP via the SPI interface, with SS/NSEL being connected to GPIO2 and NIRQ to GPIO5.
 
 So this is the wiring between ESP-12 and RFM12b:
 
-* D7 - SDI
-* D6 - SDO
-* D5 - SCK
-* D4 - NSEL
+* D7/HMOSI/GPIO13 - SDI
+* D6/HMISO/GPIO12 - SDO
+* D5/HSCLK/GPIO14 - SCK
+* D4/GPIO2        - NSEL
+* D1/GPIO5        - NIRQ
 
-And VDD/GND as usual.
+And VDD/GND as usual (3.3V).
 
 ## Building
 The project is based around platformio - so please use that to build it.
