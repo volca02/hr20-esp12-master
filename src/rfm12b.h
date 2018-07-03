@@ -68,13 +68,12 @@ struct RFM12B {
     /// synchronous polling routine that sends and/or receives one byte a time
     /// to be called from the main loop
     void poll() {
+#ifdef RFM_POLL_MODE
         // if we're idle and there are data in the out queue, we switch to TX
         if (mode == IDLE && !out.empty()) {
-            DBG("WILL SEND");
             guarantee_tx();
         }
-
-        /*
+#else
         // switch to IRQ based sending mode if needed/possible
         if (mode != RX && !out.empty()) {
             guarantee_tx();
@@ -104,7 +103,7 @@ struct RFM12B {
         // mode. recv_byte will switch to RX after it gets some.
         auto r = recv_byte();
         if (r >= 0) in.push((char)r);
-        */
+#endif
     }
 
     bool isIdle() const { return mode == IDLE; }

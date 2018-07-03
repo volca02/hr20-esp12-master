@@ -145,11 +145,12 @@ struct Protocol {
 
         size_t data_size = packet.size() - 1;
 
-        if (data_size != (packet[0] & 0x7f)) {
+        if ((data_size + 1) != (packet[0] & 0x7f)) {
             DBG(" ! Incomplete packet received");
             return;
         }
 
+        // every packet has at-least length and CMAC (1+4)
         if (data_size < 5) {
             DBG(" ! packet too short");
             return;
@@ -162,7 +163,7 @@ struct Protocol {
         crypto.rtc.pkt_cnt += cnt_offset;
 
         bool ver = crypto.cmac_verify(
-            reinterpret_cast<const uint8_t *>(packet.data() + 1), data_size - 5,
+            reinterpret_cast<const uint8_t *>(packet.data() + 1), data_size - 4,
             isSync);
 
         // restore the pkt_cnt
@@ -401,9 +402,6 @@ protected:
         // wanted valve position
         uint8_t valve_wtd = p.pop();
 
-        // TODO: dummy or what?! Maybe off-by-one problem in original impl.
-        p.pop();
-
         // fetch client from model
         HR20 *hr = model[addr];
         if (!hr) return ERR_PROTO;
@@ -536,7 +534,6 @@ protected:
         // TODO: flags
         p->push(0x00);
         p->push(0x00);
-        p->push(0xa3); // not sure what this is
     }
 
     // ref to model of the network
@@ -606,19 +603,22 @@ struct HR20Master {
 
         if (length == 0) {
             length = b & ~0x80;
-
             if (length == 0) {
                 ERR("Zero length packet");
                 wait_for_sync();
+                return;
+            } else {
+                DBG(" * Start rcv. of %d bytes", length);
             }
-        } else {
-            --length;
-            if (!length) {
-                DBG(" * packet received. Will process");
-                proto.receive(packet);
-                DBG("=== END OF PACKET PROCESSING ===");
-                wait_for_sync();
-            }
+        }
+
+        --length;
+
+        if (!length) {
+            DBG(" * packet received. Will process");
+            proto.receive(packet);
+            DBG("=== END OF PACKET PROCESSING ===");
+            wait_for_sync();
         }
     }
 

@@ -31,6 +31,7 @@ void RFM12B::begin() {
     // prepare the NIRQ pin
     pinMode(RFM_NIRQ_PIN, INPUT_PULLUP);
 
+#ifndef RFM_POLL_MODE
     if (irq_instance != nullptr) {
         ERR("Multiple registrations for RFM");
     } else {
@@ -42,6 +43,7 @@ void RFM12B::begin() {
                 &RFM12B::rfm_interrupt_handler,
                 FALLING);
     }
+#endif
 
     // the rest of this ctor is just stock initialization as
     // copied from OpenHR20's rfm.c initialization routine
@@ -161,10 +163,8 @@ void RFM12B::guarantee_rx() {
 }
 
 void RFM12B::guarantee_tx() {
-    if (out.empty()) {
-        ERR("SND NO DATA");
-        return;
-    }
+    // ignore TX request if there's no data to be sent
+    if (out.empty()) return;
 
     if (mode != TX) {
         spi16(RFM_POWER_MANAGEMENT_DC |
@@ -198,6 +198,7 @@ uint16_t RFM12B::spi16(uint16_t reg) {
     return res;
 }
 
+#ifndef RFM_POLL_MODE
 // NOTE: Not using ICACHE_RAM_ATTR as it seems to cause Exception 0
 // Just skipping the ICACHE_FLASH_ATTR is enough for this to work
 void RFM12B::rfm_interrupt_handler() {
@@ -236,3 +237,4 @@ void RFM12B::on_interrupt() {
         }
     }
 }
+#endif
