@@ -1,5 +1,9 @@
 #include <Arduino.h>
 
+#ifdef WEB_SERVER
+#include <ESP8266WebServer.h>
+#endif
+
 #include "queue.h"
 #include "crypto.h"
 #include "packetqueue.h"
@@ -677,16 +681,53 @@ struct HR20Master {
 HR20Master master;
 int last_int = 1;
 
+#ifdef WEB_SERVER
+ESP8266WebServer server(80);
+#endif
+
 void setup(void) {
     Serial.begin(38400);
     master.begin();
 
-    //this is perhaps useful for somtething (wifi, ntp) but not sure
+    // TODO: this is perhaps useful for somtething (wifi, ntp) but not sure
     randomSeed(micros());
+
     setupWifi();
+
+#ifdef WEB_SERVER
+    server.on("/",
+              [](){
+                  String status = "Valves + temperatures\n\n";
+                  unsigned cnt = 0;
+                  for (unsigned i = 0; i < MAX_HR_COUNT; ++i) {
+                      auto m = master.model[i];
+
+                      if (!m) continue;
+                      if (m->last_contact == 0) continue;
+
+
+                      ++cnt;
+                      status += "Valve ";
+                      status += String(i, HEX);
+                      status += " - ";
+                      status += String(m->temp_avg.get_remote());
+                      status += String('\n');
+                  }
+
+                  status += String('\n');
+                  status += String(cnt);
+                  status += " total";
+
+                  server.send(200, "text/plain", status);
+              });
+    server.begin();
+#endif
 }
 
 
 void loop(void) {
     master.update();
+#ifdef WEB_SERVER
+    server.handleClient();
+#endif
 }

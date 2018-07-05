@@ -1,5 +1,3 @@
-// #include <interrupts.h>
-
 #include "rfm12b.h"
 #include "rfmdef.h"
 #include "debug.h"
