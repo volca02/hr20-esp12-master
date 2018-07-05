@@ -4,7 +4,9 @@
 #include "rfmdef.h"
 #include "debug.h"
 
+#ifndef RFM_POLL_MODE
 RFM12B *RFM12B::irq_instance = nullptr;
+#endif
 
 // scoped object setting the correct SPI parameters and selecting our radio
 struct SPIScope {
@@ -122,8 +124,50 @@ void RFM12B::begin() {
     );
 
     // default is to be waiting for sync word
-    guarantee_idle();
+    switch_to_idle();
 }
+
+void ICACHE_FLASH_ATTR RFM12B::poll() {
+#ifndef RFM_POLL_MODE
+    // if we're idle and there are data in the out queue, we switch to TX
+    if (mode == IDLE && !out.empty()) {
+        switch_to_tx();
+    }
+#else
+    // switch to IRQ based sending mode if needed/possible
+    if (mode == IDLE && !out.empty()) {
+        switch_to_tx();
+    }
+
+    if (mode == TX) {
+        // no more data in queue means we can switch to idle now
+        if (out.empty()) {
+            // bogus data. just to be sure there's something in the buffers
+            // before switching to idle
+            spi16(RFM_TX_WRITE_CMD | 0xAA);
+            switch_to_idle();
+            return;
+        } else {
+            // any data to send? Check if we're done receiving first
+            if (send_byte(out.peek()))
+                out.pop();
+
+            // switch to idle - wait for incoming data now
+            if (out.empty()) switch_to_idle();
+            return;
+        }
+    } else {
+        // don't overfill the input queue!
+        if (in.full()) return;
+
+        // this will poll the radio if it has any data. it will be silent in IDLE
+        // mode. recv_byte will switch to RX after it gets some.
+        auto r = recv_byte();
+        if (r >= 0) in.push((char)r);
+    }
+#endif
+}
+
 
 uint16_t ICACHE_FLASH_ATTR RFM12B::readStatus() {
     return spi16(0x00);
@@ -146,12 +190,23 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
 }
 
 bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
-    guarantee_tx();
-    spi16(RFM_TX_WRITE_CMD | ((c) & 0xFF));
-    return true;
+    if (mode != TX) return false;
+
+    auto st = readStatus();
+
+    if (st & RFM_STATUS_RGUR) {
+        DBG(" ! RGUR");
+    }
+
+    if (st & RFM_STATUS_RGIT) {
+        spi16(RFM_TX_WRITE_CMD | ((c) & 0xFF));
+        return true;
+    }
+
+    return false;
 }
 
-void RFM12B::guarantee_rx() {
+void RFM12B::switch_to_rx() {
     if (mode != RX) {
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
@@ -162,11 +217,15 @@ void RFM12B::guarantee_rx() {
     }
 }
 
-void RFM12B::guarantee_tx() {
+void RFM12B::switch_to_tx() {
     // ignore TX request if there's no data to be sent
     if (out.empty()) return;
 
     if (mode != TX) {
+        // bogus before switching
+        spi16(RFM_TX_WRITE_CMD | 0xAA);
+        spi16(RFM_TX_WRITE_CMD | 0xAA);
+
         spi16(RFM_POWER_MANAGEMENT_DC |
               RFM_POWER_MANAGEMENT_ET |
               RFM_POWER_MANAGEMENT_ES |
@@ -175,7 +234,7 @@ void RFM12B::guarantee_tx() {
     }
 }
 
-void RFM12B::guarantee_idle() {
+void RFM12B::switch_to_idle() {
     if (mode != IDLE) {
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
@@ -215,7 +274,7 @@ void RFM12B::on_interrupt() {
             // just send some dummy data
             spi16(RFM_TX_WRITE_CMD | 0xAA);
             // and switch to idle
-            guarantee_idle();
+            switch_to_idle();
             return;
         }
 
@@ -226,14 +285,22 @@ void RFM12B::on_interrupt() {
         }
 
         if (out.empty()) {
-            guarantee_idle();
+            switch_to_idle();
             return;
         }
     } else { // RX or IDLE
         if (st & RFM_STATUS_FFIT) {
-            mode = RX; // if it were IDLE, it's not any more
             auto b = spi16(RFM_FIFO_READ);
+
+            if (mode == IDLE) {
+                mode = RX; // if it were IDLE, it's not any more
+                limit = b & 0x7f;
+            }
+
             in.push(b & 0x00FF);
+
+            if (in.size() >= limit)
+                switch_to_idle();
         }
     }
 }

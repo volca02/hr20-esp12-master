@@ -37,7 +37,7 @@ struct RFM12B {
     /// call this to reset to receiver mode, sync-word activation
     /// (after packet was sent/received whole)
     void wait_for_sync() {
-        guarantee_idle();
+        switch_to_idle();
     }
 
     /// -1 if no data is present, >= 0 received byte
@@ -67,44 +67,7 @@ struct RFM12B {
 
     /// synchronous polling routine that sends and/or receives one byte a time
     /// to be called from the main loop
-    void poll() {
-#ifdef RFM_POLL_MODE
-        // if we're idle and there are data in the out queue, we switch to TX
-        if (mode == IDLE && !out.empty()) {
-            guarantee_tx();
-        }
-#else
-        // switch to IRQ based sending mode if needed/possible
-        if (mode != RX && !out.empty()) {
-            guarantee_tx();
-            return;
-        }
-
-        // no more data in queue means we can switch to idle now
-        if (mode == TX && out.empty()) {
-            guarantee_idle();
-            return;
-        }
-
-        // any data to send? Check if we're done receiving first
-        if ((mode != RX) && !out.empty()) {
-            if (send_byte(out.peek()))
-                out.pop();
-
-            // switch to idle - wait for incoming data now
-            if (out.empty()) guarantee_idle();
-            return;
-        }
-
-        // don't overfill the input queue!
-        if (in.full()) return;
-
-        // this will poll the radio if it has any data. it will be silent in IDLE
-        // mode. recv_byte will switch to RX after it gets some.
-        auto r = recv_byte();
-        if (r >= 0) in.push((char)r);
-#endif
-    }
+    void poll();
 
     bool isIdle() const { return mode == IDLE; }
     bool isSending() const { return mode == TX; }
@@ -112,6 +75,7 @@ struct RFM12B {
 
 protected:
     ShortQ<32> out, in;
+    uint8_t limit = 0; // read limit, decoded from the first byte
 
     /// reads the status word
     uint16_t readStatus();
@@ -123,18 +87,19 @@ protected:
     bool send_byte(unsigned char c);
 
     // called before expecting to receive data
-    void guarantee_rx();
+    void switch_to_rx();
 
     // called before expecting to send data
-    void guarantee_tx();
+    void switch_to_tx();
 
     /// resets the fifo to sync-word activation
-    void guarantee_idle();
+    void switch_to_idle();
 
     /// does the SPI xfer for 16 bits while selecting the rfm12b chip by pulling
     /// down the RFM_SS_PIN
     uint16_t spi16(uint16_t reg);
 
+#ifndef RFM_POLL_MODE
     // callback from interrupt that handles the TX/RX as needed
     void on_interrupt();
 
@@ -142,4 +107,5 @@ protected:
     // anyway
     static RFM12B *irq_instance;
     static void rfm_interrupt_handler();
+#endif
 };

@@ -143,9 +143,9 @@ struct Protocol {
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
         hex_dump("PKT", packet.data(), packet.size());
 
-        size_t data_size = packet.size() - 1;
+        size_t data_size = (packet[0] & 0x7f) - 1;
 
-        if ((data_size + 1) != (packet[0] & 0x7f)) {
+        if ((data_size + 1) > packet.size()) {
             DBG(" ! Incomplete packet received");
             return;
         }
@@ -234,6 +234,15 @@ struct Protocol {
             (crypto.rtc.ss == 0 ||
              crypto.rtc.ss == 30))
         {
+            if (crypto.rtc.ss == 0) {
+                // display current time/date in full format
+                DBG(" * %04d-%02d-%02d (%d) %02d:%02d:%02d",
+                    year(curtime), month(curtime), day(curtime),
+                    ((dayOfWeek(curtime) + 5) % 7 + 1),
+                    hour(curtime), minute(curtime), second(curtime)
+                );
+            }
+
             DBG(" * sync %d", crypto.rtc.ss);
             // send sync packet
             // TODO: set force flags is we want to comm with a specific client
@@ -300,11 +309,11 @@ protected:
             bool resp = c & 0x80; // responses have highest bit set
             c &= 0x7f;
 
-            if (!resp) {
+/*            if (!resp) {
                 ERR("Master can't process commands");
                 return false;
             }
-
+*/
             switch (c) {
             case 'V':
                 err |= on_version(addr, packet); break;
@@ -521,6 +530,7 @@ protected:
     }
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
+#ifdef NTP_CLIENT
         SndPacket *p = sndQ.want_to_send_for(SendQ::SYNC_ADDR, 4, curtime);
         if (!p) return;
 
@@ -534,6 +544,7 @@ protected:
         // TODO: flags
         p->push(0x00);
         p->push(0x00);
+#endif
     }
 
     // ref to model of the network
@@ -559,9 +570,9 @@ protected:
 struct HR20Master {
     ICACHE_FLASH_ATTR HR20Master()
         : time{},
-          crypt{RFM_PASS, time},
-          queue{crypt, RESEND_TIME},
-          proto{model, crypt, queue}
+          crypto{RFM_PASS, time},
+          queue{crypto, RESEND_TIME},
+          proto{model, crypto, queue}
     {}
 
     void ICACHE_FLASH_ATTR begin() {
@@ -574,11 +585,11 @@ struct HR20Master {
         radio.poll();
 
         // Note: could use [[maybe_unused]] in C++17
-        bool __attribute__((unused)) sec_pass = crypt.update(); // update the crypto rtc if needed
+        bool __attribute__((unused)) sec_pass = crypto.update(); // update the crypto rtc if needed
 
         // TODO: if it's 00 or 30, we send sync
         if (sec_pass) {
-            DBG("(%d)", crypt.rtc.ss);
+            DBG("(%d)", crypto.rtc.ss);
             time_t curtime = time.localTime();
             proto.update(curtime, changed_time);
         }
@@ -651,7 +662,7 @@ struct HR20Master {
 
     // RTC with NTP synchronization
     ntptime::NTPTime time;
-    crypto::Crypto crypt;
+    crypto::Crypto crypto;
     RFM12B radio;
     SendQ queue;
     Model model;
