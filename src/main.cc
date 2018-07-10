@@ -39,10 +39,15 @@ constexpr const time_t RESEND_TIME = 10*60;
 // read-only value that gets reported by HR20 (not set back, not changeable)
 template<typename T>
 struct CachedValue {
-    bool ICACHE_FLASH_ATTR needs_read() const { return read_time == 0; }
+    bool ICACHE_FLASH_ATTR needs_read(time_t now) const {
+        return (this->read_time == 0)
+            && ((now - RESEND_TIME) > this->request_time);
+    }
     void ICACHE_FLASH_ATTR set_remote(T val, time_t when) { remote = val; read_time = when; }
     T ICACHE_FLASH_ATTR get_remote() const { return remote; }
+    void ICACHE_FLASH_ATTR set_request_time(time_t when) { request_time = when; }
 protected:
+    time_t request_time = 0;
     time_t read_time = 0;
     T remote;
 };
@@ -73,13 +78,26 @@ private:
     T local;
 };
 
+// I can only fit 4 timers per day in RAM here. should not matter much
+// if someone needs those 8 timers that RFM HR20 supports, feel free
+// to rework this code (maybe by using one slot variable per day)
+constexpr const uint8_t TIMER_SLOTS_PER_DAY = 4;
+
+using TimerSlot = SyncedValue<uint16_t>;
+
+uint16_t encode_timer(uint8_t hr, uint8_t min, uint8_t mode) {
+    return (uint16_t(mode) << 12) | (uint16_t(hr)*60 + min);
+}
+
+void decode_timer(uint16_t timer, uint8_t &hr, uint8_t &min, uint8_t &mode) {
+    hr   = (timer & 0x0fff) / 60;
+    min  = (timer & 0x0fff) % 60;
+    mode = timer >> 12;
+}
+
 // models a single HR20
 struct HR20 {
-    HR20()
-        : last_contact(0)
-    {}
-
-    time_t last_contact; // last contact
+    time_t last_contact = 0; // last contact
 
     // == Controllable values ==
     // these are mirrored values - we sync them to HR20 when a change is requested
@@ -92,10 +110,17 @@ struct HR20 {
     // false unlocked, true locked - L[01]/L[00]
     SyncedValue<bool>     menu_locked;
 
-    // TODO:
-    // weekly automatic temperature timer - R[DD], W[DD][XX][XX]
-    // DD == week day (0=monday). XXXX - plan
-    // TODO: LATER: DowTimer timer;
+    // Timers - 8*8 16 bit values total - 128 bytes per HR20
+    // R [Xx]
+    // W [Xx][MT][TT]
+    // X - Day of week 1-7 OR 0 - everyday timer
+    // x - slot (0-7)
+    // T - timer mode
+    // T - 12 bit TIME of day
+    // TIME is encoded in serial minutes since midnight (H*60+M)
+    // here, we're storing the MTTT sequence in compatible format
+    // (M being the highest 4 bits of the 16bit value, 12 lowest bits are time)
+    TimerSlot timers[8][TIMER_SLOTS_PER_DAY];
 
     // == Just read from HR20 - not controllable ==
     // true means auto mode with temperature equal to requested
@@ -106,11 +131,10 @@ struct HR20 {
     CachedValue<uint16_t> temp_avg;
     // average battery - [/0.001]V
     CachedValue<uint16_t> bat_avg;
-    // TODO: merge this with temp_wanted? Are they fundamentally different?
-    // current wanted temperature, degrees
-    CachedValue<uint8_t>  cur_temp_wtd;
     // desired valve position
     CachedValue<uint8_t>  cur_valve_wtd;
+    // controller error
+    CachedValue<uint8_t>  ctl_err;
 };
 
 constexpr const uint8_t MAX_HR_COUNT = 32;
@@ -130,8 +154,8 @@ protected:
 
 // implements send/receive of the OpenHR20 protocol
 struct Protocol {
-    Protocol(Model &m, crypto::Crypto &crypto, SendQ &sndQ)
-        : model(m), crypto(crypto), sndQ(sndQ), sync_count(SYNC_COUNT)
+    Protocol(Model &m, ntptime::NTPTime &time, crypto::Crypto &crypto, SendQ &sndQ)
+        : model(m), time(time), crypto(crypto), sndQ(sndQ), sync_count(SYNC_COUNT)
     {}
 
     // bitfield
@@ -142,7 +166,7 @@ struct Protocol {
 
     /// verifies incoming packet, processes it accordingly
     void ICACHE_FLASH_ATTR receive(RcvPacket &packet) {
-        rd_time = now();
+        rd_time = time.localTime();
 
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
         hex_dump("PKT", packet.data(), packet.size());
@@ -242,7 +266,7 @@ struct Protocol {
                 // display current time/date in full format
                 DBG(" * %04d-%02d-%02d (%d) %02d:%02d:%02d",
                     year(curtime), month(curtime), day(curtime),
-                    ((dayOfWeek(curtime) + 5) % 7 + 1),
+                    (int)((dayOfWeek(curtime) + 5) % 7 + 1),
                     hour(curtime), minute(curtime), second(curtime)
                 );
             }
@@ -265,7 +289,7 @@ struct Protocol {
 
 protected:
     bool ICACHE_FLASH_ATTR process_sync_packet(RcvPacket &packet) {
-        if (packet.size() < 1+4+4) {
+        if (packet.rest_size() < 1+4+4) {
             ERR("Sync packet too short");
             return false;
         }
@@ -301,6 +325,10 @@ protected:
         // sending device's address
         uint8_t addr = packet.pop();
 
+        auto hr = model[addr];
+        // the packet is valid, we can set last-contact time
+        if (hr) hr->last_contact = rd_time;
+
         // eat up the MAC, it's already verified
         packet.trim(4);
 
@@ -310,7 +338,7 @@ protected:
         while (!packet.empty()) {
             // the first byte here is command
             auto c = packet.pop();
-            bool resp = c & 0x80; // responses have highest bit set
+//            bool resp = c & 0x80; // responses have highest bit set
             c &= 0x7f;
 
 /*            if (!resp) {
@@ -327,8 +355,9 @@ protected:
             case 'M': // Mode command response
                 err |= on_debug(addr, packet); break;
             case 'T': // Watch command response (reads watched variables from PGM)
-            case 'R': // Read timers (?)
-            case 'W': // Write timers (?)
+                err |= on_watch(addr, packet); break;
+            case 'R': // Read timers
+            case 'W': // Write timers
                 err |= on_timers(addr, packet); break;
             case 'G': // get eeprom
             case 'S': // set eeprom
@@ -387,13 +416,7 @@ protected:
     }
 
     bool ICACHE_FLASH_ATTR on_debug(uint8_t addr, RcvPacket &p) {
-        // 10 0a 44 27 1e 04 08 9f 0a 5a 23 1e 44 e0 8e 87 01
-        // 16 bytes len, address 10
-        // 44 == D
-        // data[9] 27 1e 04 08 9f 0a 5a 23 1e
-        // ?? 44
-        // cmac[4] e0 8e 87 01
-        if (p.size() < 9) {
+        if (p.rest_size() < 9) {
             ERR("SHORT DBG");
             p.clear();
             return true;
@@ -419,23 +442,40 @@ protected:
         HR20 *hr = model[addr];
         if (!hr) return ERR_PROTO;
 
-        hr->last_contact = rd_time;
-
         hr->auto_mode.set_remote(min_ctl & 0x80, rd_time);
         hr->test_auto.set_remote(min_ctl & 0x40, rd_time);
         hr->menu_locked.set_remote(sec_mm & 0x80, rd_time);
         hr->mode_window.set_remote(sec_mm & 0x40, rd_time);
         hr->temp_avg.set_remote(tmp_avg_h << 8 | tmp_avg_l, rd_time);
         hr->bat_avg.set_remote(bat_avg_h << 8 | bat_avg_l, rd_time);
-        hr->cur_temp_wtd.set_remote(tmp_wtd, rd_time);
+        hr->temp_wanted.set_remote(tmp_wtd, rd_time);
         hr->cur_valve_wtd.set_remote(valve_wtd, rd_time);
+        hr->ctl_err.set_remote(ctl_err, rd_time);
 
         DBG(" * DBG RESP OK");
         return OK;
     }
 
+    bool ICACHE_FLASH_ATTR on_watch(uint8_t addr, RcvPacket &p) {
+        if (p.rest_size() < 3) {
+            ERR("SHORT WATCH");
+            p.clear();
+            return ERR_PROTO;
+        }
+
+/*        uint8_t idx  = p.pop();
+        uint16_t val = p.pop() << 8;
+        val |= p.pop();*/
+
+        // IGNORED, 8 bit slot, 16 bit value
+        p.pop(); p.pop(); p.pop();
+
+        return OK;
+    }
+
+
     bool ICACHE_FLASH_ATTR on_timers(uint8_t addr, RcvPacket &p) {
-        if (p.size() < 3) {
+        if (p.rest_size() < 3) {
             ERR("SHORT TMR");
             p.clear();
             return ERR_PROTO;
@@ -445,13 +485,17 @@ protected:
         uint16_t val = p.pop() << 8;
         val |= p.pop();
 
-        // TODO: change the timer value in model
+        // val: time | (mode << 12). Stored packed here
+        HR20 *hr = model[addr];
+        if (!hr) return ERR_PROTO;
+
+        hr->timers[idx>>4][idx & 0xFF].set_remote(val, rd_time);
 
         return OK;
     }
 
     bool ICACHE_FLASH_ATTR on_eeprom(uint8_t addr, RcvPacket &p) {
-        if (p.size() < 2) {
+        if (p.rest_size() < 2) {
             ERR("SHORT EEPROM");
             p.clear();
             return ERR_PROTO;
@@ -467,7 +511,7 @@ protected:
     }
 
     bool ICACHE_FLASH_ATTR on_menu_lock(uint8_t addr, RcvPacket &p) {
-        if (p.size() < 1) {
+        if (p.rest_size() < 1) {
             ERR("SHORT MLCK");
             p.clear();
             return ERR_PROTO;
@@ -485,7 +529,7 @@ protected:
     }
 
     bool ICACHE_FLASH_ATTR on_reboot(uint8_t addr, RcvPacket &p) {
-        if (p.size() < 2) {
+        if (p.rest_size() < 2) {
             ERR("SHORT REBOOT");
             p.clear();
             return ERR_PROTO;
@@ -505,11 +549,26 @@ protected:
         // wanted temperature
         if (hr.temp_wanted.needs_write(rd_time))
             send_set_temp(addr, hr.temp_wanted);
+
         if (hr.auto_mode.needs_write(rd_time))
             send_set_auto_mode(addr, hr.auto_mode);
+
+        // get timers if we don't have them, set them if change happened
+        for (uint8_t dow = 0; dow < 8; ++dow) {
+            for (uint8_t slot = 0; slot < TIMER_SLOTS_PER_DAY; ++slot) {
+                auto &timer = hr.timers[dow][slot];
+                if (timer.needs_read(rd_time))
+                    send_get_timer(addr, dow, slot, timer);
+                if (timer.needs_write(rd_time))
+                    send_set_timer(addr, dow, slot, timer);
+            }
+        }
     }
 
-    void ICACHE_FLASH_ATTR send_set_temp(uint8_t addr, SyncedValue<uint8_t> &temp_wanted) {
+    void ICACHE_FLASH_ATTR send_set_temp(uint8_t addr,
+                                         SyncedValue<uint8_t> &temp_wanted)
+    {
+        DBG("   * TEMP %u", addr);
         // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
@@ -521,7 +580,10 @@ protected:
         temp_wanted.set_send_time(rd_time);
     }
 
-    void ICACHE_FLASH_ATTR send_set_auto_mode(uint8_t addr, SyncedValue<bool> &auto_mode) {
+    void ICACHE_FLASH_ATTR send_set_auto_mode(uint8_t addr,
+                                              SyncedValue<bool> &auto_mode)
+    {
+        DBG("   * AUTO %u", addr);
         // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
@@ -531,6 +593,36 @@ protected:
 
         // set the time we last requested the change
         auto_mode.set_send_time(rd_time);
+    }
+
+    void ICACHE_FLASH_ATTR send_get_timer(uint8_t addr, uint8_t dow,
+                                          uint8_t slot, TimerSlot &timer)
+    {
+        DBG("   * GET TIMER %u", addr);
+        SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
+        if (!p) return;
+
+        p->push('R');
+        p->push(dow << 4 | slot);
+
+        // set the time we last requested the change
+        timer.set_request_time(rd_time);
+    }
+
+    void ICACHE_FLASH_ATTR send_set_timer(uint8_t addr, uint8_t dow,
+                                          uint8_t slot, TimerSlot &timer)
+    {
+        DBG("   * SET TIMER %u", addr);
+        SndPacket *p = sndQ.want_to_send_for(addr, 4, rd_time);
+        if (!p) return;
+
+        p->push('W');
+        p->push(dow << 4 | slot);
+        p->push(timer.get_local() >> 8);
+        p->push(timer.get_local() && 0xFF);
+
+        // set the time we last requested the change
+        timer.set_send_time(rd_time);
     }
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
@@ -554,6 +646,9 @@ protected:
     // ref to model of the network
     Model &model;
 
+    // timer
+    ntptime::NTPTime &time;
+
     // encryption tools
     crypto::Crypto &crypto;
 
@@ -576,7 +671,7 @@ struct HR20Master {
         : time{},
           crypto{RFM_PASS, time},
           queue{crypto, RESEND_TIME},
-          proto{model, crypto, queue}
+          proto{model, time, crypto, queue}
     {}
 
     void ICACHE_FLASH_ATTR begin() {
@@ -710,7 +805,7 @@ void setup(void) {
                       status += "Valve ";
                       status += String(i, HEX);
                       status += " - ";
-                      status += String(m->temp_avg.get_remote());
+                      status += String(float(m->temp_avg.get_remote()) / 100.0f, 2);
                       status += String('\n');
                   }
 
