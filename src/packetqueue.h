@@ -90,9 +90,6 @@ struct PacketQ {
                 bool isSync = (it.addr == SYNC_ADDR);
                 // just something to not get handled while we're sending this
                 it.addr = -2;
-                // we need to sign this with cmac
-                cmac.clear();
-                crypto.cmac_fill(it.packet.data(), it.packet.size(), isSync, cmac);
                 // TODO: this should probably be handled by Protocol class
                 prologue.clear();
                 prologue.push(0xaa); // just some gibberish
@@ -102,16 +99,20 @@ struct PacketQ {
 
                 // 1 means length byte, size is inclusive
                 // length, highest byte indicates sync word
-                prologue.push((1 + it.packet.size() + cmac.size())
+                prologue.push((1 + it.packet.size() + crypto::CMAC::CMAC_SIZE)
                               | (isSync ? 0x80 : 0x00));
-
-                // dummy bytes, this gives the radio time to process the 16 bit
-                // tx queue in time - we don't care if these get sent whole.
-                cmac.push(0xAA); cmac.push(0xAA);
 
                 // non-sync packets have to be encrypted as well
                 if (!isSync)
                     crypto.encrypt_decrypt(it.packet.data(), it.packet.size());
+
+                // we need to sign this with cmac
+                cmac.clear();
+                crypto.cmac_fill(it.packet.data(), it.packet.size(), isSync, cmac);
+
+                // dummy bytes, this gives the radio time to process the 16 bit
+                // tx queue in time - we don't care if these get sent whole.
+                cmac.push(0xAA); cmac.push(0xAA);
 
                 hex_dump("PRLG", prologue.data(), prologue.size());
                 hex_dump(" DTA", it.packet.data(), it.packet.size());
