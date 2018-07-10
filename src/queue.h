@@ -42,6 +42,9 @@ struct ShortQ {
     // raw data access for packet storage
     uint8_t *data() { return buf; }
     const uint8_t *data() const { return buf; }
+    // remaining data size
+    uint8_t rest_size() const { return _top - _pos; }
+    // size from the begining of the buffer
     uint8_t size() const { return _top; }
     void clear() {
         _pos = 0;
