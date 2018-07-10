@@ -66,6 +66,8 @@ protected:
 
 // cmac calculator, reimplementation of cmac.c
 struct CMAC {
+    enum { CMAC_SIZE = 4 };
+
     ICACHE_FLASH_ATTR CMAC(const uint8_t *k1,
                            const uint8_t *k2,
                            const uint8_t *kmac)
@@ -80,7 +82,7 @@ struct CMAC {
         uint8_t buf[8];
         calc_cmac(data, size, prefix, buf);
         cmac.clear();
-        for (int i = 0; i < 4; ++i) cmac.push(buf[i]);
+        for (int i = 0; i < CMAC_SIZE; ++i) cmac.push(buf[i]);
     }
 
     // verifies 4 bytes after the specified buffer end for cmac signature
@@ -88,7 +90,7 @@ struct CMAC {
         uint8_t buf[8];
         calc_cmac(data, size, prefix, buf);
 
-        for (uint8_t i = 0; i < 4; i++) {
+        for (uint8_t i = 0; i < CMAC_SIZE; i++) {
             if (data[size + i] != buf[i]) return false;
         }
 
