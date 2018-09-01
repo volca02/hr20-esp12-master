@@ -5,40 +5,6 @@
 
 namespace crypto {
 
-void ICACHE_FLASH_ATTR CMAC::calc_cmac(const uint8_t *data, uint8_t size,
-                                       const uint8_t *prefix, uint8_t *buf) const
-{
-    XTEA xt(kmac);
-
-    if (prefix) {
-        xt.encrypt(prefix, buf);
-    } else {
-        memset(buf, 0, 8);
-    }
-
-    for (unsigned i = 0; i < size;) {
-        auto x = i;
-        i += 8;
-
-        const uint8_t *kx = ((i == size) ? k1 : k2);
-
-        for (unsigned j=0; j<8; j++,x++) {
-            uint8_t tmp;
-
-            if (x < size)
-                tmp = data[x];
-            else
-                tmp = (x == size) ? 0x80 : 0;
-
-            if (i >= size) tmp ^= kx[j];
-
-            buf[j] ^= tmp;
-        }
-
-        xt.encrypt(buf, buf);
-    }
-}
-
 const uint8_t Crypto::Km_upper[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
 
 /// rolls 8 byte key according to CMAC requirements
@@ -57,8 +23,7 @@ static void ICACHE_FLASH_ATTR roll(const uint8_t *src, uint8_t *dst) {
 }
 
 ICACHE_FLASH_ATTR Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
-    : time(time),
-      cmac(K1, K2, Kmac)
+    : time(time)
 {
     // join pre-defined rfm_pass key + and hardcoded Km_upper
     uint8_t k_m[16];

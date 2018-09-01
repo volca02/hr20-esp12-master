@@ -88,6 +88,7 @@ struct PacketQ {
                 DBG(" * PREP TO SND [%d]", i);
                 sending = &it;
                 bool isSync = (it.addr == SYNC_ADDR);
+                auto addr = it.addr;
                 // just something to not get handled while we're sending this
                 it.addr = -2;
                 // TODO: this should probably be handled by Protocol class
@@ -97,18 +98,30 @@ struct PacketQ {
                 prologue.push(0x2d); // 2 byte sync word
                 prologue.push(0xd4);
 
-                // 1 means length byte, size is inclusive
+                // 1 is the length itself
                 // length, highest byte indicates sync word
-                prologue.push((1 + it.packet.size() + crypto::CMAC::CMAC_SIZE)
-                              | (isSync ? 0x80 : 0x00));
+                // non-sync word includes an address
+                uint8_t lenbyte = 1 + it.packet.size() + crypto::CMAC::CMAC_SIZE;
+
+                cmac.clear();
 
                 // non-sync packets have to be encrypted as well
-                if (!isSync)
+                if (!isSync) {
+                    ++lenbyte; // we're pushing address so we extend length
+                    prologue.push(lenbyte);
+                    prologue.push(addr);
                     crypto.encrypt_decrypt(it.packet.data(), it.packet.size());
+                    // FIX: non-sync packets have to contain address in cmac
+                    crypto.cmac_fill_addr(it.packet.data(),
+                                          it.packet.size(),
+                                          addr, cmac);
+                } else {
+                    prologue.push(lenbyte | 0x80); // 0x80 indicates sync
+                    crypto.cmac_fill_sync(it.packet.data(),
+                                          it.packet.size(),
+                                          cmac);
+                }
 
-                // we need to sign this with cmac
-                cmac.clear();
-                crypto.cmac_fill(it.packet.data(), it.packet.size(), isSync, cmac);
 
                 // dummy bytes, this gives the radio time to process the 16 bit
                 // tx queue in time - we don't care if these get sent whole.
@@ -175,7 +188,7 @@ struct PacketQ {
     crypto::Crypto &crypto;
     Item que[PACKET_QUEUE_LEN];
     Item *sending = nullptr;
-    ShortQ<5> prologue; // stores sync-word and size
+    ShortQ<6> prologue; // stores sync-word, size and optionally an address
     ShortQ<6> cmac; // stores cmac for sent packet, and 2 dummy bytes
     time_t packet_max_age;
 };

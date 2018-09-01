@@ -70,39 +70,74 @@ struct CMAC {
 
     ICACHE_FLASH_ATTR CMAC(const uint8_t *k1,
                            const uint8_t *k2,
-                           const uint8_t *kmac)
-        : k1(k1), k2(k2), kmac(kmac)
-    {}
-
-    // sets cmac to a given ShortQ
-    template<uint8_t CNT>
-    void ICACHE_FLASH_ATTR compute(const uint8_t *data, uint8_t size, ShortQ<CNT> &cmac,
-                                   const uint8_t *prefix = nullptr) const
+                           const uint8_t *kmac,
+                           const uint8_t *prefix = nullptr)
+        : k1(k1), k2(k2), kmac(kmac), xt(kmac), pos(0)
     {
-        uint8_t buf[8];
-        calc_cmac(data, size, prefix, buf);
-        cmac.clear();
-        for (int i = 0; i < CMAC_SIZE; ++i) cmac.push(buf[i]);
+        if (prefix) {
+            xt.encrypt(prefix, buf);
+        } else {
+            memset(buf, 0, 8);
+        }
     }
 
-    // verifies 4 bytes after the specified buffer end for cmac signature
-    bool verify(const uint8_t *data, uint8_t size, const uint8_t *prefix = nullptr) const {
-        uint8_t buf[8];
-        calc_cmac(data, size, prefix, buf);
+    void append(const uint8_t *data, uint8_t size) {
+        uint8_t x = 0;
 
-        for (uint8_t i = 0; i < CMAC_SIZE; i++) {
-            if (data[size + i] != buf[i]) return false;
+        while (true) {
+            for (; x < size && pos < 8; ++x, ++pos) {
+                wip[pos] = data[x];
+            }
+
+            // leave rest for finish or next run
+            if (x >= size) break;
+
+            // not a whole window, leave it for the next time
+            if (pos < 8) break;
+
+            for (unsigned j = 0; j < 8; ++j) {
+                buf[j] ^= wip[j];
+            }
+            pos = 0;
+            xt.encrypt(buf, buf);
+        }
+    }
+
+    uint8_t *finish() {
+        // any excess data that didn't get processed?
+        const uint8_t *kx = ((pos == 8) ? k1 : k2);
+
+        if (pos > 0) {
+            uint8_t trail = 0x80;
+
+            // pre-prepare the rest of the wip buffer
+            for (uint8_t p = pos; p < 8; ++p) {
+                wip[p] = trail;
+                trail  = 0x0;
+            }
+
+            for (unsigned j = 0; j < 8; j++) {
+                buf[j] ^= wip[j];
+            }
         }
 
-        return true;
+        for (unsigned j = 0; j < 8; j++) {
+            buf[j] ^= kx[j];
+        }
+
+        xt.encrypt(buf, buf);
+        return buf;
     }
 
 protected:
-    void calc_cmac(const uint8_t *data, uint8_t size, const uint8_t *prefix, uint8_t *buf) const;
-
     const uint8_t *k1;
     const uint8_t *k2;
     const uint8_t *kmac;
+    XTEA          xt;
+    uint8_t       buf[8];
+
+    uint8_t       pos;
+    uint8_t       wip[8];
 };
 
 struct RTC {
@@ -135,8 +170,6 @@ struct Crypto {
     time_t lastTime;
     RTC rtc;
 
-    crypto::CMAC cmac;
-
     // initializes Kmac, Kenc, K1 and K2
     Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time);
 
@@ -149,17 +182,44 @@ struct Crypto {
     bool ICACHE_FLASH_ATTR cmac_verify(const uint8_t *data, size_t size,
                                        bool isSync)
     {
-        return cmac.verify(data, size, isSync ? nullptr : rtc_bytes());
+        CMAC cmac(K1, K2, Kmac, isSync ? nullptr : rtc_bytes());
+
+        cmac.append(data, size);
+        const uint8_t *buf = cmac.finish();
+
+        for (uint8_t i = 0; i < CMAC::CMAC_SIZE; i++) {
+            if (data[size + i] != buf[i])
+                return false;
+        }
+
+        return true;
     }
 
     // fills cmac for given packet
     template<uint8_t CNT>
-    void ICACHE_FLASH_ATTR cmac_fill(const uint8_t *data, size_t size,
-                                     bool isSync, ShortQ<CNT> &tgt) const
+    void ICACHE_FLASH_ATTR cmac_fill_sync(const uint8_t *data, size_t size,
+                                          ShortQ<CNT> &tgt) const
     {
-        cmac.compute(data, size, tgt,
-                     isSync ? nullptr : rtc_bytes());
+        CMAC cmac(K1, K2, Kmac);
 
+        cmac.append(data, size);
+        const uint8_t *buf = cmac.finish();
+
+        for (int i = 0; i < CMAC::CMAC_SIZE; ++i) tgt.push(buf[i]);
+    }
+
+    // fills cmac for given packet
+    template<uint8_t CNT>
+    void ICACHE_FLASH_ATTR cmac_fill_addr(const uint8_t *data, size_t size,
+                                          uint8_t addr, ShortQ<CNT> &tgt) const
+    {
+        CMAC cmac(K1, K2, Kmac, rtc_bytes());
+
+        cmac.append(&addr, 1);
+        cmac.append(data, size);
+        const uint8_t *buf = cmac.finish();
+
+        for (int i = 0; i < CMAC::CMAC_SIZE; ++i) tgt.push(buf[i]);
     }
 
     const uint8_t * ICACHE_FLASH_ATTR rtc_bytes() const {
