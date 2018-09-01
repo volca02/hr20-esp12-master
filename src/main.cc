@@ -744,11 +744,7 @@ struct HR20Master {
 
             if (b >= 0) {
                 if (radio.send(b)) {
-                    if (!queue.pop()) {
-                        // no more data... radio will switch
-                        // to idle after it's done sending...
-                        return false;
-                    }
+                    queue.pop();
                 } else {
                     // come back after the radio gets free
                     return true;

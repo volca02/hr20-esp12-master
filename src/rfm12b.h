@@ -74,7 +74,7 @@ struct RFM12B {
     bool isReceiving() const { return mode == RX; }
 
 protected:
-    ShortQ<32> out, in;
+    ShortQ<84> out, in;
     uint8_t limit = 0; // read limit, decoded from the first byte
 
     /// reads the status word
