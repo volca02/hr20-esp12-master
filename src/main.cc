@@ -422,6 +422,12 @@ protected:
             return true;
         }
 
+        // TODO: Can't just store the value here, the client seems to accumulate
+        // the debug packet responses.
+        // Investigation is needed to determine if this is a side-effect of
+        // mis-steps of this implementation or a normal behavior.
+        // If it IS a normal behavior, we need to handle the value carefully
+
         // minutes. 0x80 is CTL_mode_auto(0 manual, 1 auto), 0x40 is CTL_test_auto
         uint8_t min_ctl   = p.pop();
         // seconds. 0x80 is menu_locked, 0x40 is mode_window(0 closed, 1 open)
