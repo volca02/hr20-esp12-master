@@ -100,7 +100,7 @@ struct PacketQ {
 
                 // 1 is the length itself
                 // length, highest byte indicates sync word
-                // non-sync word includes an address
+                // non-sync packet includes an address (see branch below)
                 uint8_t lenbyte = 1 + it.packet.size() + crypto::CMAC::CMAC_SIZE;
 
                 cmac.clear();
@@ -111,7 +111,7 @@ struct PacketQ {
                     prologue.push(lenbyte);
                     prologue.push(addr);
                     crypto.encrypt_decrypt(it.packet.data(), it.packet.size());
-                    // FIX: non-sync packets have to contain address in cmac
+                    // non-sync packets include address in the cmac checksum
                     crypto.cmac_fill_addr(it.packet.data(),
                                           it.packet.size(),
                                           addr, cmac);
