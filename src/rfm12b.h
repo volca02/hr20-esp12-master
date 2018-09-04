@@ -74,6 +74,10 @@ struct RFM12B {
     bool isReceiving() const { return mode == RX; }
 
 protected:
+    // TODO: Align this with PacketQ's SENT_PACKET_LEN
+    // we have to be able to hold the whole packet at once,
+    // as the naiive implementation of ShortQ does not allow for data appends
+    // while being emptied (would need a circular buffer for that)
     ShortQ<84> out, in;
     uint8_t limit = 0; // read limit, decoded from the first byte
 
