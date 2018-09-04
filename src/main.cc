@@ -83,6 +83,9 @@ private:
 // to rework this code (maybe by using one slot variable per day)
 constexpr const uint8_t TIMER_SLOTS_PER_DAY = 4;
 
+// timer has 7 slots for days and 1 slot extra for repeated everyday mode
+constexpr const uint8_t TIMER_DAYS = 8;
+
 using TimerSlot = SyncedValue<uint16_t>;
 
 uint16_t encode_timer(uint8_t hr, uint8_t min, uint8_t mode) {
@@ -120,7 +123,7 @@ struct HR20 {
     // TIME is encoded in serial minutes since midnight (H*60+M)
     // here, we're storing the MTTT sequence in compatible format
     // (M being the highest 4 bits of the 16bit value, 12 lowest bits are time)
-    TimerSlot timers[8][TIMER_SLOTS_PER_DAY];
+    TimerSlot timers[TIMER_DAYS][TIMER_SLOTS_PER_DAY];
 
     // == Just read from HR20 - not controllable ==
     // true means auto mode with temperature equal to requested
@@ -172,6 +175,7 @@ struct Protocol {
         hex_dump("PKT", packet.data(), packet.size());
 
         size_t data_size = (packet[0] & 0x7f) - 1;
+        bool   isSync    = (packet[0] & 0x80) != 0;
 
         if ((data_size + 1) > packet.size()) {
             DBG(" ! Incomplete packet received");
@@ -183,8 +187,6 @@ struct Protocol {
             DBG(" ! packet too short");
             return;
         }
-
-        bool isSync = (packet[0] & 0x80) != 0;
 
         // what is this magic used in original code?
         uint8_t cnt_offset = (packet.size() + 1) / 8;
@@ -221,7 +223,6 @@ struct Protocol {
                     reinterpret_cast<uint8_t *>(packet.data()) + 2,
                     packet.size() - 6);
 
-            // return the packet counter back
             crypto.rtc.pkt_cnt++;
 
 #ifdef DEBUG
@@ -495,7 +496,22 @@ protected:
         HR20 *hr = model[addr];
         if (!hr) return ERR_PROTO;
 
-        hr->timers[idx>>4][idx & 0xFF].set_remote(val, rd_time);
+        uint8_t day  = idx >> 4;
+        uint8_t slot = idx & 0xFF;
+
+        if (slot >= TIMER_SLOTS_PER_DAY) {
+            // slot num too high
+            DBG("Timer slot too high %hu", slot);
+            return OK;
+        }
+
+        if (day >= TIMER_DAYS) {
+            // slot num too high
+            DBG("Timer day too high %hu", day);
+            return OK;
+        }
+
+        hr->timers[day][slot].set_remote(val, rd_time);
 
         return OK;
     }

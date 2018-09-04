@@ -211,7 +211,7 @@ struct Crypto {
     // fills cmac for given packet
     template<uint8_t CNT>
     void ICACHE_FLASH_ATTR cmac_fill_addr(const uint8_t *data, size_t size,
-                                          uint8_t addr, ShortQ<CNT> &tgt) const
+                                          uint8_t addr, ShortQ<CNT> &tgt)
     {
         CMAC cmac(K1, K2, Kmac, rtc_bytes());
 
@@ -220,6 +220,9 @@ struct Crypto {
         const uint8_t *buf = cmac.finish();
 
         for (int i = 0; i < CMAC::CMAC_SIZE; ++i) tgt.push(buf[i]);
+
+        // non-sync packets increment sync count
+        rtc.pkt_cnt++;
     }
 
     const uint8_t * ICACHE_FLASH_ATTR rtc_bytes() const {

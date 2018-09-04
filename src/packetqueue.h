@@ -88,7 +88,6 @@ struct PacketQ {
                 DBG(" * PREP TO SND [%d]", i);
                 sending = &it;
                 bool isSync = (it.addr == SYNC_ADDR);
-                auto addr = it.addr;
                 // just something to not get handled while we're sending this
                 it.addr = -2;
                 // TODO: this should probably be handled by Protocol class
@@ -109,12 +108,13 @@ struct PacketQ {
                 if (!isSync) {
                     ++lenbyte; // we're pushing address so we extend length
                     prologue.push(lenbyte);
-                    prologue.push(addr);
+                    prologue.push(MASTER_ADDR);
                     crypto.encrypt_decrypt(it.packet.data(), it.packet.size());
+
                     // non-sync packets include address in the cmac checksum
                     crypto.cmac_fill_addr(it.packet.data(),
                                           it.packet.size(),
-                                          addr, cmac);
+                                          MASTER_ADDR, cmac);
                 } else {
                     prologue.push(lenbyte | 0x80); // 0x80 indicates sync
                     crypto.cmac_fill_sync(it.packet.data(),
