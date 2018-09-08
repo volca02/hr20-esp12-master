@@ -62,9 +62,6 @@ struct PacketQ {
                 it.addr = addr;
                 it.time = curtime;
                 it.packet.clear();
-                // every non-sync packet starts with addr
-                // which is contained in cmac calculation
-                if (addr != SYNC_ADDR) it.packet.push(addr);
                 return &it.packet;
             }
         }
@@ -90,12 +87,8 @@ struct PacketQ {
                 bool isSync = (it.addr == SYNC_ADDR);
                 // just something to not get handled while we're sending this
                 it.addr = -2;
-                // TODO: this should probably be handled by Protocol class
-                prologue.clear();
-                prologue.push(0xaa); // just some gibberish
-                prologue.push(0xaa);
-                prologue.push(0x2d); // 2 byte sync word
-                prologue.push(0xd4);
+
+                prepare_prologue();
 
                 // 1 is the length itself
                 // length, highest byte indicates sync word
@@ -109,6 +102,9 @@ struct PacketQ {
                     ++lenbyte; // we're pushing address so we extend length
                     prologue.push(lenbyte);
                     prologue.push(MASTER_ADDR);
+
+                    hex_dump("ODTA", it.packet.data(), it.packet.size());
+
                     crypto.encrypt_decrypt(it.packet.data(), it.packet.size());
 
                     // non-sync packets include address in the cmac checksum
@@ -137,6 +133,15 @@ struct PacketQ {
 
         DBG(" * PREP NO PKT");
         return false;
+    }
+
+    void prepare_prologue() {
+        // TODO: this should probably be handled by Protocol class
+        prologue.clear();
+        prologue.push(0xaa); // just some gibberish
+        prologue.push(0xaa);
+        prologue.push(0x2d); // 2 byte sync word
+        prologue.push(0xd4);
     }
 
     int ICACHE_FLASH_ATTR peek() {
