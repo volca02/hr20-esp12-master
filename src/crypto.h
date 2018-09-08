@@ -221,7 +221,7 @@ struct Crypto {
 
         for (int i = 0; i < CMAC::CMAC_SIZE; ++i) tgt.push(buf[i]);
 
-        // non-sync packets increment sync count
+        // non-sync packets increment packet count
         rtc.pkt_cnt++;
     }
 
