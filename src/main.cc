@@ -41,7 +41,7 @@ template<typename T>
 struct CachedValue {
     bool ICACHE_FLASH_ATTR needs_read(time_t now) const {
         return (this->read_time == 0)
-            && ((now - RESEND_TIME) > this->request_time);
+            && ((now - RESEND_TIME) >= this->request_time);
     }
     void ICACHE_FLASH_ATTR set_remote(T val, time_t when) { remote = val; read_time = when; }
     T ICACHE_FLASH_ATTR get_remote() const { return remote; }
@@ -174,6 +174,7 @@ struct Protocol {
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
         hex_dump("PKT", packet.data(), packet.size());
 
+        // length byte in packet contains the length byte itself (thus -1)
         size_t data_size = (packet[0] & 0x7f) - 1;
         bool   isSync    = (packet[0] & 0x80) != 0;
 
@@ -188,13 +189,14 @@ struct Protocol {
             return;
         }
 
-        // what is this magic used in original code?
-        uint8_t cnt_offset = (packet.size() + 1) / 8;
+        // pkt_cnt gets increased the number of times it was
+        // increased in encrypt_decrypt by sender (not applicable for sync)
+        uint8_t cnt_offset = isSync ? 0 : (packet.size() + 1) / 8;
         crypto.rtc.pkt_cnt += cnt_offset;
 
         bool ver = crypto.cmac_verify(
-            reinterpret_cast<const uint8_t *>(packet.data() + 1), data_size - 4,
-            isSync);
+            reinterpret_cast<const uint8_t *>(packet.data() + 1),
+            data_size - crypto::CMAC::CMAC_SIZE, isSync);
 
         // restore the pkt_cnt
         crypto.rtc.pkt_cnt -= cnt_offset;
@@ -377,6 +379,12 @@ protected:
         // inform send queue that we can send data for addr if we have any
         // we limit to one packet to each client every minute by this logic
         if (last_addr != addr) {
+            // prepare for immediate response if possible - shortens discovery
+            // time by 1 minute.
+            queue_updates_for(addr, *hr);
+
+            // if there's anything for the current address, we prepare to
+            // send right away.
             bool haveData = sndQ.prepare_to_send_to(addr);
             DBG(" * prep: %s for %d", haveData ? "packet" : "nothing", addr);
             last_addr = addr;
@@ -655,7 +663,7 @@ protected:
         // TODO: force flags, if needed!
         auto &rtc = crypto.rtc;
         p->push(rtc.YY);
-        p->push(rtc.MM << 4 | (rtc.DD >> 3));
+        p->push((rtc.MM << 4) | (rtc.DD >> 3));
         p->push((rtc.DD << 5) | rtc.hh);
         p->push(rtc.mm << 1 | (rtc.ss == 30 ? 1 : 0));
 
@@ -802,7 +810,7 @@ void setup(void) {
     Serial.begin(38400);
     master.begin();
 
-    // TODO: this is perhaps useful for somtething (wifi, ntp) but not sure
+    // TODO: this is perhaps useful for something (wifi, ntp) but not sure
     randomSeed(micros());
 
     setupWifi();
