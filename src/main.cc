@@ -4,6 +4,10 @@
 #include <ESP8266WebServer.h>
 #endif
 
+#ifdef MQTT
+#include "mqtt.h"
+#endif
+
 #include "queue.h"
 #include "crypto.h"
 #include "packetqueue.h"
@@ -15,7 +19,7 @@
 // Sync count after RTC update.
 // 255 is OpenHR20 default. (122 minutes after time sync)
 // TODO: make time updates perpetual and resolve out of sync client issues
-constexpr const uint8_t SYNC_COUNT = 255;
+// constexpr const uint8_t SYNC_COUNT = 255;
 
 // custom specified RFM password
 // TODO: set this via -DRFM_PASS macros for convenient customization, or allow setting this via some web interface
@@ -98,6 +102,12 @@ void decode_timer(uint16_t timer, uint8_t &hr, uint8_t &min, uint8_t &mode) {
     mode = timer >> 12;
 }
 
+// categorizes the changes in HR20 model
+enum ChangeCategory {
+    CHANGE_FREQUENT = 1,
+    CHANGE_TIMERS   = 2
+};
+
 // models a single HR20
 struct HR20 {
     time_t last_contact = 0; // last contact
@@ -155,10 +165,12 @@ protected:
     HR20 clients[MAX_HR_COUNT];
 };
 
+typedef std::function<void(uint8_t addr, ChangeCategory cat)> OnChangeCb;
+
 // implements send/receive of the OpenHR20 protocol
 struct Protocol {
     Protocol(Model &m, ntptime::NTPTime &time, crypto::Crypto &crypto, SendQ &sndQ)
-        : model(m), time(time), crypto(crypto), sndQ(sndQ), sync_count(SYNC_COUNT)
+        : model(m), time(time), crypto(crypto), sndQ(sndQ)
     {}
 
     // bitfield
@@ -166,6 +178,10 @@ struct Protocol {
         OK = 0, // no bit allocated for OK
         ERR_PROTO = 1
     };
+
+    void ICACHE_FLASH_ATTR set_callback(const OnChangeCb &cb) {
+        on_change_cb = cb;
+    }
 
     /// verifies incoming packet, processes it accordingly
     void ICACHE_FLASH_ATTR receive(RcvPacket &packet) {
@@ -262,12 +278,7 @@ struct Protocol {
         // clear
         if (crypto.rtc.ss == 0) last_addr = 0xFF;
 
-        // this whole class does not make much sense for clients,
-        // it implements master logic...
-        if (changed_time) sync_count = SYNC_COUNT;
-
-        if (sync_count &&
-            (crypto.rtc.ss == 0 ||
+        if ((crypto.rtc.ss == 0 ||
              crypto.rtc.ss == 30))
         {
             if (crypto.rtc.ss == 0) {
@@ -288,8 +299,6 @@ struct Protocol {
 
             // and immediately prepare to send it
             sndQ.prepare_to_send_to(SendQ::SYNC_ADDR);
-
-            --sync_count;
         }
 
         // right before the next minute starts,
@@ -400,9 +409,11 @@ protected:
 
             // if there's anything for the current address, we prepare to
             // send right away.
-            bool haveData = sndQ.prepare_to_send_to(addr);
 #ifdef VERBOSE
+            bool haveData = sndQ.prepare_to_send_to(addr);
             DBG(" * prep: %s for %d", haveData ? "packet" : "nothing", addr);
+#else
+            sndQ.prepare_to_send_to(addr);
 #endif
             last_addr = addr;
         }
@@ -487,6 +498,10 @@ protected:
 #ifdef VERBOSE
         DBG(" * DBG RESP OK");
 #endif
+
+        // inform callback we had a change
+        if (on_change_cb) on_change_cb(addr, CHANGE_FREQUENT);
+
         return OK;
     }
 
@@ -709,14 +724,15 @@ protected:
     // encryption tools
     crypto::Crypto &crypto;
 
+    // callback that gets informed about changes
+    OnChangeCb on_change_cb;
+
     // ref to packet queue responsible for packet retrieval for sending
     SendQ &sndQ;
 
     // last address we sent a packet to - limits to 1 packet for every client
     // every minute
     uint8_t last_addr = 0xFF;
-
-    int sync_count = SYNC_COUNT;
 
     // current read time
     time_t rd_time;
@@ -825,12 +841,130 @@ struct HR20Master {
 };
 
 
+#ifdef MQTT
+namespace mqtt {
+
+struct MQTTPublisher {
+    // TODO: Make this configurable!
+    static constexpr const char *mqtt_server = "192.168.1.22";
+
+    ICACHE_FLASH_ATTR MQTTPublisher(HR20Master &master) : master(master) {
+        for (uint8_t i = 0; i < MAX_HR_COUNT; ++i)
+            states[i] = 0;
+    }
+
+    ICACHE_FLASH_ATTR void begin() {
+        client.setServer(mqtt_server, 1883);
+        client.setCallback([&](char *topic, byte *payload, unsigned int length)
+                           {
+                               callback(topic, payload, length);
+                           });
+        // every change gets a bitmask info here
+        master.proto.set_callback([&](uint8_t addr, uint32_t mask) {
+                                      states[addr] |= mask;
+                                  });
+    }
+
+    ICACHE_FLASH_ATTR void update() {
+        for (uint8_t addr = 1; addr < MAX_HR_COUNT; ++addr) {
+            auto chngs = states[addr]; states[addr] = 0;
+
+            if (chngs & CHANGE_FREQUENT) {
+                publish_frequent(addr);
+            }
+        }
+    }
+
+    template<typename T>
+    ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
+        String sv(val);
+        client.publish(p.compose().c_str(), sv.c_str());
+    }
+
+    ICACHE_FLASH_ATTR void publish_frequent(uint8_t addr) const {
+        auto *hr = master.model[addr];
+        if (!hr) {
+            ERR("Change on invalid client");
+            return;
+        }
+
+        Path p{addr, mqtt::INVALID_TOPIC};
+
+        p.topic = mqtt::MODE;
+        publish(p, hr->auto_mode.get_remote());
+
+        // TODO: test_auto
+
+        p.topic = mqtt::LOCK;
+        publish(p, hr->menu_locked.get_remote());
+
+        p.topic = mqtt::WND;
+        publish(p, hr->mode_window.get_remote());
+
+        p.topic = mqtt::AVG_TMP;
+        publish(p, hr->temp_avg.get_remote());
+
+        p.topic = mqtt::BAT;
+        publish(p, hr->bat_avg.get_remote());
+
+        p.topic = mqtt::REQ_TMP;
+        publish(p, hr->temp_wanted.get_remote());
+
+        p.topic = mqtt::VALVE_WTD;
+        publish(p, hr->cur_valve_wtd.get_remote());
+
+        p.topic = mqtt::ERR;
+        publish(p, hr->ctl_err.get_remote());
+    }
+
+    ICACHE_FLASH_ATTR void callback(char *topic, byte *payload,
+                                    unsigned int length)
+    {
+        // only allowed on some endpoints. will switch through
+        Path p = Path::parse(topic);
+
+        if (!p.valid()) {
+            ERR("Invalid topic %s", topic);
+            return;
+        }
+
+        auto *hr = master.model[p.addr];
+        if (!hr) {
+            ERR("Callback to set on invalid client");
+            return;
+        }
+
+#warning the temp_wanted setting is accurate to 1 degree now. not ideal!
+        const char *val = reinterpret_cast<const char*>(payload);
+        switch (p.topic) {
+        case mqtt::REQ_TMP: hr->temp_wanted.set_local(atoi(val) * 2); break;
+        case mqtt::MODE: hr->auto_mode.set_local(atoi(val)); break;
+        case mqtt::LOCK: hr->menu_locked.set_local(atoi(val)); break;
+        default: ERR("Non-settable topic change requested: %s", topic);
+        }
+    }
+
+    /// seriously, const correctness anyone? PubSubClient does not have single const method...
+    mutable PubSubClient client;
+    HR20Master &master;
+    uint8_t states[MAX_HR_COUNT];
+};
+
+} // namespace mqtt
+#endif
+
+
 HR20Master master;
 int last_int = 1;
 
 #ifdef WEB_SERVER
 ESP8266WebServer server(80);
 #endif
+
+#ifdef MQTT
+mqtt::MQTTPublisher publisher(master);
+#endif
+
 
 void setup(void) {
     Serial.begin(38400);
@@ -840,6 +974,10 @@ void setup(void) {
     randomSeed(micros());
 
     setupWifi();
+
+#ifdef MQTT
+    publisher.begin();
+#endif
 
 #ifdef WEB_SERVER
     server.on("/",
