@@ -782,9 +782,7 @@ struct HR20Master {
         --length;
 
         if (!length) {
-#ifdef VERBOSE
-            DBG(" * RX");
-#endif
+            DBG("(RX %u)", packet.size());
             proto.receive(packet);
             wait_for_sync();
         }
