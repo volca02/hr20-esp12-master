@@ -16,6 +16,10 @@ struct ShortQ {
         return true;
     }
 
+    uint8_t pos() const {
+        return _pos;
+    }
+
     uint8_t pop() {
         uint8_t c = 0x0;
 

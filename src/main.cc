@@ -28,7 +28,7 @@ constexpr const uint8_t RFM_PASS[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23,
 // that does not apply to OpenHR20 since it shares send/recv buffer in one.
 using RcvPacket = ShortQ<76>;
 // sent packet is shorter, as we hold cmac in an isolated place
-using SndPacket = ShortQ<76>;
+using SndPacket = PacketQ::Packet;
 
 // sending packet queue
 using SendQ = PacketQ;
@@ -145,7 +145,7 @@ constexpr const uint8_t MAX_HR_COUNT = 32;
 struct Model {
     HR20 * ICACHE_FLASH_ATTR operator[](uint8_t idx) {
         if (idx >= MAX_HR_COUNT) {
-            DBG(" ! Client address out of range");
+            ERR("Client address out of range");
             return nullptr;
         }
         return &clients[idx];
@@ -171,21 +171,23 @@ struct Protocol {
     void ICACHE_FLASH_ATTR receive(RcvPacket &packet) {
         rd_time = time.localTime();
 
+#ifdef VERBOSE
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
         hex_dump("PKT", packet.data(), packet.size());
+#endif
 
         // length byte in packet contains the length byte itself (thus -1)
         size_t data_size = (packet[0] & 0x7f) - 1;
         bool   isSync    = (packet[0] & 0x80) != 0;
 
         if ((data_size + 1) > packet.size()) {
-            DBG(" ! Incomplete packet received");
+            ERR("Incomplete packet received");
             return;
         }
 
         // every packet has at-least length and CMAC (1+4)
         if (data_size < 5) {
-            DBG(" ! packet too short");
+            ERR("Packet too short");
             return;
         }
 
@@ -201,14 +203,16 @@ struct Protocol {
         // restore the pkt_cnt
         crypto.rtc.pkt_cnt -= cnt_offset;
 
+#ifdef VERBOSE
         DBG(" %s%s PACKET VERIFICATION %s",
             ver    ? "*"       : "!",
             isSync ? " SYNC"   : "",
             ver    ? "SUCCESS" : "FAILURE");
-
+#endif
         // verification failed? return
         if (!ver) {
             // bad packet might get special handling later on...
+            ERR("BAD CMAC");
             on_failed_verify();
             return;
         }
@@ -217,7 +221,7 @@ struct Protocol {
             process_sync_packet(packet);
         } else {
             if (packet.size() < 6) {
-                DBG(" ! packet too short");
+                ERR("Packet too short");
                 return;
             }
             // not a sync packet. we have to decode it
@@ -227,11 +231,12 @@ struct Protocol {
 
             crypto.rtc.pkt_cnt++;
 
-#ifdef DEBUG
+#ifdef VERBOSE
             hex_dump(" * Decoded packet data", packet.data(), packet.size());
 #endif
             if (!process_packet(packet)) {
                 ERR("packet processing failed");
+                hex_dump("PKT", packet.data(), packet.size());
             }
         }
     }
@@ -274,7 +279,9 @@ struct Protocol {
                 );
             }
 
+#ifdef VERBOSE
             DBG(" * sync %d", crypto.rtc.ss);
+#endif
             // send sync packet
             // TODO: set force flags is we want to comm with a specific client
             send_sync(curtime);
@@ -287,7 +294,11 @@ struct Protocol {
 
         // right before the next minute starts,
         // we diff the model and fill the queues
-        if (crypto.rtc.ss == 59) fill_send_queues();
+
+        // TODO: Enable this again, but after we use the force flags in sync
+        // We now queue requests as a reaction to incoming packet, but that
+        // will cause delays when clients switch to low verbosity mode.
+        // if (crypto.rtc.ss == 59) fill_send_queues();
     }
 
 protected:
@@ -370,9 +381,13 @@ protected:
             case 'B':
                 err |= on_reboot(addr, packet);
             default:
-                ERR("UNK. CMD %x", (int)c);
-                packet.clear();
-                return true;
+                ERR("At %u: UNK. CMD %x", packet.pos(), (int)c);
+                return false;
+            }
+
+            if (err != OK) {
+                ERR("BAD PKT!");
+                return false;
             }
         }
 
@@ -386,7 +401,9 @@ protected:
             // if there's anything for the current address, we prepare to
             // send right away.
             bool haveData = sndQ.prepare_to_send_to(addr);
+#ifdef VERBOSE
             DBG(" * prep: %s for %d", haveData ? "packet" : "nothing", addr);
+#endif
             last_addr = addr;
         }
 
@@ -467,7 +484,9 @@ protected:
         hr->cur_valve_wtd.set_remote(valve_wtd, rd_time);
         hr->ctl_err.set_remote(ctl_err, rd_time);
 
+#ifdef VERBOSE
         DBG(" * DBG RESP OK");
+#endif
         return OK;
     }
 
@@ -505,18 +524,18 @@ protected:
         if (!hr) return ERR_PROTO;
 
         uint8_t day  = idx >> 4;
-        uint8_t slot = idx & 0xFF;
+        uint8_t slot = idx & 0xF;
 
         if (slot >= TIMER_SLOTS_PER_DAY) {
             // slot num too high
-            DBG("Timer slot too high %hu", slot);
-            return OK;
+            ERR("Timer slot too high %hu", slot);
+            return ERR_PROTO;
         }
 
         if (day >= TIMER_DAYS) {
             // slot num too high
-            DBG("Timer day too high %hu", day);
-            return OK;
+            ERR("Timer day too high %hu", day);
+            return ERR_PROTO;
         }
 
         hr->timers[day][slot].set_remote(val, rd_time);
@@ -598,7 +617,9 @@ protected:
     void ICACHE_FLASH_ATTR send_set_temp(uint8_t addr,
                                          SyncedValue<uint8_t> &temp_wanted)
     {
+#ifdef VERBOSE
         DBG("   * TEMP %u", addr);
+#endif
         // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
@@ -613,7 +634,9 @@ protected:
     void ICACHE_FLASH_ATTR send_set_auto_mode(uint8_t addr,
                                               SyncedValue<bool> &auto_mode)
     {
+#ifdef VERBOSE
         DBG("   * AUTO %u", addr);
+#endif
         // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
@@ -628,7 +651,9 @@ protected:
     void ICACHE_FLASH_ATTR send_get_timer(uint8_t addr, uint8_t dow,
                                           uint8_t slot, TimerSlot &timer)
     {
+#ifdef VERBOSE
         DBG("   * GET TIMER %u", addr);
+#endif
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
 
@@ -642,7 +667,9 @@ protected:
     void ICACHE_FLASH_ATTR send_set_timer(uint8_t addr, uint8_t dow,
                                           uint8_t slot, TimerSlot &timer)
     {
+#ifdef VERBOSE
         DBG("   * SET TIMER %u", addr);
+#endif
         SndPacket *p = sndQ.want_to_send_for(addr, 4, rd_time);
         if (!p) return;
 
@@ -718,7 +745,7 @@ struct HR20Master {
 
         // TODO: if it's 00 or 30, we send sync
         if (sec_pass) {
-            DBG("(%d)", crypto.rtc.ss);
+            DBGI("\r(%d)", crypto.rtc.ss);
             time_t curtime = time.localTime();
             proto.update(curtime, changed_time);
         }
@@ -734,8 +761,6 @@ struct HR20Master {
         // no data on input means we just ignore
         if (b < 0) return;
 
-        DBGI("R");
-
         if (!packet.push(b)) {
             ERR("packet exceeds maximal length. Discarding");
             wait_for_sync();
@@ -748,16 +773,19 @@ struct HR20Master {
                 wait_for_sync();
                 return;
             } else {
+#ifdef VERBOSE
                 DBG(" * Start rcv. of %d bytes", length);
+#endif
             }
         }
 
         --length;
 
         if (!length) {
-            DBG(" * packet received. Will process");
+#ifdef VERBOSE
+            DBG(" * RX");
+#endif
             proto.receive(packet);
-            DBG("=== END OF PACKET PROCESSING ===");
             wait_for_sync();
         }
     }

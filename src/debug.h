@@ -23,3 +23,9 @@ inline void hex_dump(const char *prefix, const void *p, size_t size) {
 #else
 inline void hex_dump(const char *prefix, const void *p, size_t size) {}
 #endif
+
+// TODO: Use variadic template to skip over temporary buffer usage for DBG macros
+
+// Use this to make master more verbose
+// * NOTE: it might run into timing issues with clients then
+// #define VERBOSE

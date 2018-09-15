@@ -7,7 +7,10 @@
 #include "debug.h"
 
 constexpr const uint8_t PACKET_QUEUE_LEN = 32;
-constexpr const uint8_t SENT_PACKET_LEN = 76;
+// constexpr const uint8_t SENT_PACKET_LEN = 76;
+// 19 is empirical - maybe 24 could work, but we should analyze why the clients
+// struggle to send more than that - it would benefit the comm speed greatly.
+constexpr const uint8_t SENT_PACKET_LEN = 19;
 
 // implements a packet queue
 struct PacketQ {
@@ -42,7 +45,9 @@ struct PacketQ {
     /// insert into queue or return nullptr if full
     /// returns packet structure to be filled with data
     Packet * ICACHE_FLASH_ATTR want_to_send_for(uint8_t addr, uint8_t bytes, time_t curtime) {
+#ifdef VERBOSE
         DBG(" * Q APP %p", this);
+#endif
         for (int i = 0; i < PACKET_QUEUE_LEN; ++i) {
             // reverse index - we queue top first, send bottom first
             // to have fair queueing
@@ -51,14 +56,18 @@ struct PacketQ {
 
             if (addr != SYNC_ADDR && (it.addr == addr)) {
                 if (it.packet.free_size() > bytes) {
+#ifdef VERBOSE
                     DBG(" * Q APPEND [%d] %d", ri, addr);
+#endif
                     return &it.packet;
                 }
             }
 
             // free spot or too old packet
             if ((it.addr == -1) || (it.time + packet_max_age < curtime)) {
+#ifdef VERBOSE
                 DBG(" * Q NEW [%d] %d", ri, addr);
+#endif
                 it.addr = addr;
                 it.time = curtime;
                 it.packet.clear();
@@ -82,7 +91,9 @@ struct PacketQ {
         for (unsigned i = 0; i < PACKET_QUEUE_LEN; ++i) {
             Item &it = que[i];
             if (it.addr == addr) {
+#ifdef VERBOSE
                 DBG(" * PREP TO SND [%d]", i);
+#endif
                 sending = &it;
                 bool isSync = (it.addr == SYNC_ADDR);
                 // just something to not get handled while we're sending this
@@ -103,8 +114,6 @@ struct PacketQ {
                     prologue.push(lenbyte);
                     prologue.push(MASTER_ADDR);
 
-                    hex_dump("ODTA", it.packet.data(), it.packet.size());
-
                     crypto.encrypt_decrypt(it.packet.data(), it.packet.size());
 
                     // non-sync packets include address in the cmac checksum
@@ -123,10 +132,11 @@ struct PacketQ {
                 // tx queue in time - we don't care if these get sent whole.
                 cmac.push(0xAA); cmac.push(0xAA);
 
+#ifdef VERBOSE
                 hex_dump("PRLG", prologue.data(), prologue.size());
                 hex_dump(" DTA", it.packet.data(), it.packet.size());
                 hex_dump("CMAC", cmac.data(), cmac.size());
-
+#endif
                 return true;
             }
         }
