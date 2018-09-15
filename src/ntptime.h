@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef NTP_CLIENT
-#include "..\lib\NTPClient\NTPClient.h"
+#include "../lib/NTPClient/NTPClient.h"
 #include <WiFiUdp.h>
 #include <Timezone.h>
 #endif
@@ -66,7 +66,7 @@ struct NTPTime {
 
      int getMillis() {
 #ifdef NTP_CLIENT
-        
+
         return timeClient.getMillis();
 #else
        return millis()%1000;
