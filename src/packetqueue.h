@@ -10,7 +10,7 @@ constexpr const uint8_t PACKET_QUEUE_LEN = 32;
 // constexpr const uint8_t SENT_PACKET_LEN = 76;
 // 19 is empirical - maybe 24 could work, but we should analyze why the clients
 // struggle to send more than that - it would benefit the comm speed greatly.
-constexpr const uint8_t SENT_PACKET_LEN = 19;
+constexpr const uint8_t SENT_PACKET_LEN = 25;
 
 // implements a packet queue
 struct PacketQ {
