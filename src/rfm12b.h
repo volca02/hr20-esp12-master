@@ -80,6 +80,7 @@ protected:
     // while being emptied (would need a circular buffer for that)
     ShortQ<84> out, in;
     uint8_t limit = 0; // read limit, decoded from the first byte
+    uint8_t counter = 0; // envent counter - read/written bytes, reset on switch_*
 
     /// reads the status word
     uint16_t readStatus();

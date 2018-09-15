@@ -181,6 +181,7 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
         // forced RX as the radio woken up from IDLE for sure
         mode = RX;
         auto b = spi16(RFM_FIFO_READ);
+        ++counter;
         return ((uint16_t)b & 0x00FF);
     }
 
@@ -198,6 +199,7 @@ bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
 
     if (st & RFM_STATUS_RGIT) {
         spi16(RFM_TX_WRITE_CMD | ((c) & 0xFF));
+        ++counter;
         return true;
     }
 
@@ -206,6 +208,7 @@ bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
 
 void RFM12B::switch_to_rx() {
     if (mode != RX) {
+        DBG("(RX %u)", counter); counter = 0;
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
               RFM_POWER_MANAGEMENT_EBB |
@@ -220,6 +223,7 @@ void RFM12B::switch_to_tx() {
     if (out.empty()) return;
 
     if (mode != TX) {
+        DBG("(TX %u)", counter); counter = 0;
         // bogus before switching
         spi16(RFM_TX_WRITE_CMD | 0xAA);
         spi16(RFM_TX_WRITE_CMD | 0xAA);
@@ -234,6 +238,7 @@ void RFM12B::switch_to_tx() {
 
 void RFM12B::switch_to_idle() {
     if (mode != IDLE) {
+        DBG("(IDLE %u)", counter); counter = 0;
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
               RFM_POWER_MANAGEMENT_EBB |
