@@ -66,6 +66,8 @@ ICACHE_FLASH_ATTR static Topic parse_topic(char *top) {
     case 'w':
         if (strcmp(top, S_WND) == 0) return WND;
         return INVALID_TOPIC;
+    default:
+        return INVALID_TOPIC;
     }
 }
 
@@ -86,6 +88,7 @@ struct Path {
         rv += addr;
         rv += SEPARATOR;
         rv += topicStr(topic);
+        return rv;
     }
 
     ICACHE_FLASH_ATTR static Path parse(char *p) {
@@ -143,6 +146,7 @@ struct Path {
                 return res;
             }
         }
+        return res;
     }
 
     ICACHE_FLASH_ATTR static char *cmp_token(char *p, const char *tok) {

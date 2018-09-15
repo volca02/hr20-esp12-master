@@ -740,20 +740,18 @@ protected:
 
 /// Implements the state machine for packet sending/retrieval and radio control.
 struct HR20Master {
-    ICACHE_FLASH_ATTR HR20Master()
-        : time{},
+    ICACHE_FLASH_ATTR HR20Master(ntptime::NTPTime &tm)
+        : time(tm),
           crypto{RFM_PASS, time},
           queue{crypto, RESEND_TIME},
           proto{model, time, crypto, queue}
     {}
 
     void ICACHE_FLASH_ATTR begin() {
-        time.begin();
         radio.begin();
     }
 
-    void ICACHE_FLASH_ATTR update() {
-        bool changed_time = time.update();
+    bool ICACHE_FLASH_ATTR update(bool changed_time) {
         radio.poll();
 
         // Note: could use [[maybe_unused]] in C++17
@@ -769,6 +767,7 @@ struct HR20Master {
         // send data/receive data as appropriate
         send();
         receive();
+        return sec_pass;
     }
 
     void ICACHE_FLASH_ATTR receive() {
@@ -828,7 +827,7 @@ struct HR20Master {
     }
 
     // RTC with NTP synchronization
-    ntptime::NTPTime time;
+    ntptime::NTPTime &time;
     crypto::Crypto crypto;
     RFM12B radio;
     SendQ queue;
@@ -848,7 +847,9 @@ struct MQTTPublisher {
     // TODO: Make this configurable!
     static constexpr const char *mqtt_server = "192.168.1.22";
 
-    ICACHE_FLASH_ATTR MQTTPublisher(HR20Master &master) : master(master) {
+    ICACHE_FLASH_ATTR MQTTPublisher(ntptime::NTPTime &time, HR20Master &master)
+        : time(time), master(master)
+    {
         for (uint8_t i = 0; i < MAX_HR_COUNT; ++i)
             states[i] = 0;
     }
@@ -865,7 +866,14 @@ struct MQTTPublisher {
                                   });
     }
 
+    // only call once a second!
     ICACHE_FLASH_ATTR void update() {
+        auto sec = second(time.localTime());
+
+        // TODO: Set this time properly
+        // mqtt only updates once a minute for now (don't block our RFM comms)
+        if (sec != 50) return;
+
         for (uint8_t addr = 1; addr < MAX_HR_COUNT; ++addr) {
             auto chngs = states[addr]; states[addr] = 0;
 
@@ -901,14 +909,16 @@ struct MQTTPublisher {
         p.topic = mqtt::WND;
         publish(p, hr->mode_window.get_remote());
 
+        // TODO: this is in 100s of C, change it to float?
         p.topic = mqtt::AVG_TMP;
         publish(p, hr->temp_avg.get_remote());
 
         p.topic = mqtt::BAT;
         publish(p, hr->bat_avg.get_remote());
 
+        // TODO: Fix formatting for temp_wanted
         p.topic = mqtt::REQ_TMP;
-        publish(p, hr->temp_wanted.get_remote());
+        publish(p, hr->temp_wanted.get_remote() / 2);
 
         p.topic = mqtt::VALVE_WTD;
         publish(p, hr->cur_valve_wtd.get_remote());
@@ -944,6 +954,7 @@ struct MQTTPublisher {
         }
     }
 
+    ntptime::NTPTime &time;
     /// seriously, const correctness anyone? PubSubClient does not have single const method...
     mutable PubSubClient client;
     HR20Master &master;
@@ -953,8 +964,9 @@ struct MQTTPublisher {
 } // namespace mqtt
 #endif
 
+ntptime::NTPTime time;
 
-HR20Master master;
+HR20Master master{time};
 int last_int = 1;
 
 #ifdef WEB_SERVER
@@ -962,12 +974,13 @@ ESP8266WebServer server(80);
 #endif
 
 #ifdef MQTT
-mqtt::MQTTPublisher publisher(master);
+mqtt::MQTTPublisher publisher(time, master);
 #endif
 
 
 void setup(void) {
     Serial.begin(38400);
+    time.begin();
     master.begin();
 
     // TODO: this is perhaps useful for something (wifi, ntp) but not sure
@@ -1011,7 +1024,15 @@ void setup(void) {
 
 
 void loop(void) {
-    master.update();
+    bool changed_time = time.update();
+
+    if (master.update(changed_time)) {
+        // second passed
+#ifdef MQTT
+    publisher.update();
+#endif
+    }
+
 #ifdef WEB_SERVER
     server.handleClient();
 #endif
