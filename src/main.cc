@@ -448,7 +448,6 @@ protected:
             // packet too short or newline missing?
             if (p.empty()) {
                 ERR("SHORT VER");
-                p.clear();
                 return ERR_PROTO;
             }
 
@@ -470,7 +469,6 @@ protected:
     bool ICACHE_FLASH_ATTR on_debug(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 9) {
             ERR("SHORT DBG");
-            p.clear();
             return true;
         }
 
@@ -523,7 +521,6 @@ protected:
     bool ICACHE_FLASH_ATTR on_watch(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 3) {
             ERR("SHORT WATCH");
-            p.clear();
             return ERR_PROTO;
         }
 
@@ -541,7 +538,6 @@ protected:
     bool ICACHE_FLASH_ATTR on_timers(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 3) {
             ERR("SHORT TMR");
-            p.clear();
             return ERR_PROTO;
         }
 
@@ -576,7 +572,6 @@ protected:
     bool ICACHE_FLASH_ATTR on_eeprom(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 2) {
             ERR("SHORT EEPROM");
-            p.clear();
             return ERR_PROTO;
         }
 
@@ -592,7 +587,6 @@ protected:
     bool ICACHE_FLASH_ATTR on_menu_lock(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 1) {
             ERR("SHORT MLCK");
-            p.clear();
             return ERR_PROTO;
         }
 
@@ -610,7 +604,6 @@ protected:
     bool ICACHE_FLASH_ATTR on_reboot(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 2) {
             ERR("SHORT REBOOT");
-            p.clear();
             return ERR_PROTO;
         }
 
@@ -890,7 +883,6 @@ struct MQTTPublisher {
                 return false;
             }
         }
-        DBG("(MQTT CONN OK)");
         return true;
     }
 
