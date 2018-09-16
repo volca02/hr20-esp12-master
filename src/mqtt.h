@@ -80,10 +80,10 @@ struct Path {
     ICACHE_FLASH_ATTR Path() {}
     ICACHE_FLASH_ATTR Path(uint8_t addr, Topic t) : addr(addr), topic(t) {}
 
-    // target has to be able to hold prefix len + / + addr(2 bytes) + '/' + 14
     // UGLY INEFFECTIVE STRING APPEND FOLLOWS
     ICACHE_FLASH_ATTR String compose() const {
-        String rv = prefix;
+        String rv(SEPARATOR);
+        rv += prefix;
         rv += SEPARATOR;
         rv += addr;
         rv += SEPARATOR;
@@ -94,6 +94,9 @@ struct Path {
     ICACHE_FLASH_ATTR static Path parse(const char *p) {
         // compare prefix first
         const char *pos = p;
+
+        // skip initial SEPARATOR if present
+        if (*pos == SEPARATOR) ++pos;
 
         // is the first token same as prefix?
         pos = cmp_token(p, prefix);

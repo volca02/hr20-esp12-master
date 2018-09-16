@@ -906,16 +906,16 @@ struct MQTTPublisher {
     template<typename T>
     ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, const T &val) const {
         String sv(val);
-        auto path = p.compose().c_str();
-        client.publish(path, sv.c_str());
-        client.subscribe(path);
+        String path = p.compose();
+        client.publish(path.c_str(), sv.c_str());
+        client.subscribe(path.c_str());
     }
 
     template<typename T>
     ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
         String sv(val);
-        auto path = p.compose().c_str();
-        client.publish(path, sv.c_str());
+        String path = p.compose();
+        client.publish(path.c_str(), sv.c_str());
     }
 
     ICACHE_FLASH_ATTR void publish_frequent(uint8_t addr) const {
