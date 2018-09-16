@@ -99,7 +99,7 @@ struct Path {
         if (*pos == SEPARATOR) ++pos;
 
         // is the first token same as prefix?
-        pos = cmp_token(p, prefix);
+        pos = cmp_token(pos, prefix);
 
         // not prefix!
         if (!pos) return {};
