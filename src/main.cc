@@ -797,7 +797,7 @@ struct HR20Master {
         --length;
 
         if (!length) {
-            DBG("(RX %u)", packet.size());
+            DBG("(PKT %u)", packet.size());
             proto.receive(packet);
             wait_for_sync();
         }
@@ -846,9 +846,10 @@ namespace mqtt {
 struct MQTTPublisher {
     // TODO: Make this configurable!
     static constexpr const char *mqtt_server = "192.168.1.22";
+    static constexpr const char *client_id = "hr20";
 
     ICACHE_FLASH_ATTR MQTTPublisher(ntptime::NTPTime &time, HR20Master &master)
-        : time(time), master(master)
+        : time(time), master(master), wifiClient(), client(wifiClient)
     {
         for (uint8_t i = 0; i < MAX_HR_COUNT; ++i)
             states[i] = 0;
@@ -866,6 +867,18 @@ struct MQTTPublisher {
                                   });
     }
 
+    ICACHE_FLASH_ATTR bool reconnect() {
+        if (!client.connected()) {
+            DBG("(MQTT CONN)");
+            if (!client.connect(client_id)) {
+                ERR("MQTT conn. err.");
+                return false;
+            }
+        }
+        DBG("(MQTT CONN OK)");
+        return true;
+    }
+
     // only call once a second!
     ICACHE_FLASH_ATTR void update() {
         auto sec = second(time.localTime());
@@ -873,6 +886,8 @@ struct MQTTPublisher {
         // TODO: Set this time properly
         // mqtt only updates once a minute for now (don't block our RFM comms)
         if (sec != 50) return;
+
+        if (!reconnect()) return;
 
         for (uint8_t addr = 1; addr < MAX_HR_COUNT; ++addr) {
             auto chngs = states[addr]; states[addr] = 0;
@@ -955,9 +970,10 @@ struct MQTTPublisher {
     }
 
     ntptime::NTPTime &time;
+    HR20Master &master;
+    WiFiClient wifiClient;
     /// seriously, const correctness anyone? PubSubClient does not have single const method...
     mutable PubSubClient client;
-    HR20Master &master;
     uint8_t states[MAX_HR_COUNT];
 };
 
