@@ -880,7 +880,11 @@ struct MQTTPublisher {
     }
 
     // only call once a second!
-    ICACHE_FLASH_ATTR void update() {
+    ICACHE_FLASH_ATTR void update(bool sec_pass) {
+        client.loop();
+
+        if (!sec_pass) return;
+
         auto sec = second(time.localTime());
 
         // TODO: Set this time properly
@@ -1054,12 +1058,12 @@ void setup(void) {
 void loop(void) {
     bool changed_time = time.update();
 
-    if (master.update(changed_time)) {
+    bool __attribute__((unused)) sec_pass = master.update(changed_time);
         // second passed
 #ifdef MQTT
-    publisher.update();
+    publisher.update(sec_pass);
 #endif
-    }
+
 
 #ifdef WEB_SERVER
     server.handleClient();
