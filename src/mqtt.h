@@ -40,7 +40,7 @@ ICACHE_FLASH_ATTR static const char *topicStr(Topic topic) {
     }
 }
 
-ICACHE_FLASH_ATTR static Topic parse_topic(char *top) {
+ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
     switch (*top) {
     case 'a':
         if (strcmp(top, S_AVG_TMP) == 0) return AVG_TMP;
@@ -91,9 +91,9 @@ struct Path {
         return rv;
     }
 
-    ICACHE_FLASH_ATTR static Path parse(char *p) {
+    ICACHE_FLASH_ATTR static Path parse(const char *p) {
         // compare prefix first
-        char *pos = p;
+        const char *pos = p;
 
         // is the first token same as prefix?
         pos = cmp_token(p, prefix);
@@ -124,7 +124,7 @@ struct Path {
         return {address, top};
     }
 
-    ICACHE_FLASH_ATTR static uint8_t to_num(char **p, uint8_t cnt) {
+    ICACHE_FLASH_ATTR static uint8_t to_num(const char **p, uint8_t cnt) {
         uint8_t res = 0;
         for (;cnt--;++(*p)) {
             if (**p == 0) return res;
@@ -142,6 +142,7 @@ struct Path {
                 case '9':
                     res *= 10;
                     res += static_cast<uint8_t>(**p - '0');
+                    continue;
             default:
                 return res;
             }
@@ -149,7 +150,7 @@ struct Path {
         return res;
     }
 
-    ICACHE_FLASH_ATTR static char *cmp_token(char *p, const char *tok) {
+    ICACHE_FLASH_ATTR static const char *cmp_token(const char *p, const char *tok) {
         auto t = token(p);
         return (strncmp(p, tok, t.second) == 0) ? p + t.second : nullptr;
     }
