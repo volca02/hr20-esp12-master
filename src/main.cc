@@ -893,15 +893,25 @@ struct MQTTPublisher {
             auto chngs = states[addr]; states[addr] = 0;
 
             if (chngs & CHANGE_FREQUENT) {
+                DBG("(MF %u)", addr);
                 publish_frequent(addr);
             }
         }
     }
 
     template<typename T>
+    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, const T &val) const {
+        String sv(val);
+        auto path = p.compose().c_str();
+        client.publish(path, sv.c_str());
+        client.subscribe(path);
+    }
+
+    template<typename T>
     ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
         String sv(val);
-        client.publish(p.compose().c_str(), sv.c_str());
+        auto path = p.compose().c_str();
+        client.publish(path, sv.c_str());
     }
 
     ICACHE_FLASH_ATTR void publish_frequent(uint8_t addr) const {
@@ -914,26 +924,28 @@ struct MQTTPublisher {
         Path p{addr, mqtt::INVALID_TOPIC};
 
         p.topic = mqtt::MODE;
-        publish(p, hr->auto_mode.get_remote());
+        publish_subscribe(p, hr->auto_mode.get_remote());
 
         // TODO: test_auto
 
         p.topic = mqtt::LOCK;
-        publish(p, hr->menu_locked.get_remote());
+        publish_subscribe(p, hr->menu_locked.get_remote());
 
         p.topic = mqtt::WND;
         publish(p, hr->mode_window.get_remote());
 
-        // TODO: this is in 100s of C, change it to float?
+        // TODO: this is in 0.01 of C, change it to float?
         p.topic = mqtt::AVG_TMP;
         publish(p, hr->temp_avg.get_remote());
 
+        // TODO: Battery is in 0.01 of V, change it to float?
         p.topic = mqtt::BAT;
         publish(p, hr->bat_avg.get_remote());
 
-        // TODO: Fix formatting for temp_wanted
+        // TODO: Fix formatting for temp_wanted - float?
+        // temp_wanted is in 0.5 C
         p.topic = mqtt::REQ_TMP;
-        publish(p, hr->temp_wanted.get_remote() / 2);
+        publish_subscribe(p, hr->temp_wanted.get_remote() / 2);
 
         p.topic = mqtt::VALVE_WTD;
         publish(p, hr->cur_valve_wtd.get_remote());
