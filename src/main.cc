@@ -66,19 +66,34 @@ struct SyncedValue : public CachedValue<T> {
         // and of course don't send updates if the requested value
         // matches what's on remote
         return (this->read_time != 0)
-            && ((now - this->send_time) > RESEND_TIME)
+            && ((this->req_time != 0) && (now > this->req_time))
             && (local != this->remote);
     }
 
     T ICACHE_FLASH_ATTR get_local() const { return local; }
 
-    void ICACHE_FLASH_ATTR set_local(T val) { local = val; send_time = 0; }
+    void ICACHE_FLASH_ATTR set_local(T val, time_t now) {
+        local = val;
+        req_time = now;
+    }
 
-    // sets the time we tried to update remote last time
-    void ICACHE_FLASH_ATTR set_send_time(time_t t) { send_time = t; }
+    // sets the time when we should next try to update remote last time
+    void ICACHE_FLASH_ATTR set_req_time(time_t t) { req_time = t; }
+
+    // override for synced values - confirmations reset req_time
+    void ICACHE_FLASH_ATTR set_remote(T val, time_t when) {
+        this->remote = val;
+        if (this->remote == this->local) this->req_time = 0;
+        this->read_time = when;
+    }
+
+    // returns true for values that don't have newer change request
+    bool ICACHE_FLASH_ATTR is_synced() const {
+        return req_time == 0;
+    }
 
 private:
-    time_t send_time = 0;
+    time_t req_time = 0; // zero means no value change requested
     T local;
 };
 
@@ -642,8 +657,8 @@ protected:
         p->push('A');
         p->push(temp_wanted.get_local());
 
-        // set the time we last requested the change
-        temp_wanted.set_send_time(rd_time);
+        // set the time we should next try to set the value
+        temp_wanted.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_set_auto_mode(uint8_t addr,
@@ -660,7 +675,7 @@ protected:
         p->push(auto_mode.get_local() ? 1 : 0);
 
         // set the time we last requested the change
-        auto_mode.set_send_time(rd_time);
+        auto_mode.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_get_timer(uint8_t addr, uint8_t dow,
@@ -676,7 +691,7 @@ protected:
         p->push(dow << 4 | slot);
 
         // set the time we last requested the change
-        timer.set_request_time(rd_time);
+        timer.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_set_timer(uint8_t addr, uint8_t dow,
@@ -694,7 +709,7 @@ protected:
         p->push(timer.get_local() && 0xFF);
 
         // set the time we last requested the change
-        timer.set_send_time(rd_time);
+        timer.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
@@ -883,6 +898,8 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void update(bool sec_pass) {
         client.loop();
 
+        now = time.localTime();
+
         if (!sec_pass) return;
 
         auto sec = second(time.localTime());
@@ -903,11 +920,13 @@ struct MQTTPublisher {
         }
     }
 
-    template<typename T>
-    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, const T &val) const {
+    template <typename T>
+    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, const T &val,
+                                             bool do_publish) const
+    {
         String sv(val);
         String path = p.compose();
-        client.publish(path.c_str(), sv.c_str());
+        if (do_publish) client.publish(path.c_str(), sv.c_str());
         client.subscribe(path.c_str());
     }
 
@@ -928,12 +947,12 @@ struct MQTTPublisher {
         Path p{addr, mqtt::INVALID_TOPIC};
 
         p.topic = mqtt::MODE;
-        publish_subscribe(p, hr->auto_mode.get_remote());
+        publish_subscribe(p, hr->auto_mode.get_remote(), hr->auto_mode.is_synced());
 
         // TODO: test_auto
 
         p.topic = mqtt::LOCK;
-        publish_subscribe(p, hr->menu_locked.get_remote());
+        publish_subscribe(p, hr->menu_locked.get_remote(), hr->auto_mode.is_synced());
 
         p.topic = mqtt::WND;
         publish(p, hr->mode_window.get_remote());
@@ -949,7 +968,7 @@ struct MQTTPublisher {
         // TODO: Fix formatting for temp_wanted - float?
         // temp_wanted is in 0.5 C
         p.topic = mqtt::REQ_TMP;
-        publish_subscribe(p, hr->temp_wanted.get_remote() / 2);
+        publish_subscribe(p, hr->temp_wanted.get_remote() / 2, hr->auto_mode.is_synced());
 
         p.topic = mqtt::VALVE_WTD;
         publish(p, hr->cur_valve_wtd.get_remote());
@@ -978,13 +997,14 @@ struct MQTTPublisher {
 #warning the temp_wanted setting is accurate to 1 degree now. not ideal!
         const char *val = reinterpret_cast<const char*>(payload);
         switch (p.topic) {
-        case mqtt::REQ_TMP: hr->temp_wanted.set_local(atoi(val) * 2); break;
-        case mqtt::MODE: hr->auto_mode.set_local(atoi(val)); break;
-        case mqtt::LOCK: hr->menu_locked.set_local(atoi(val)); break;
+        case mqtt::REQ_TMP: hr->temp_wanted.set_local(atoi(val) * 2, now); break;
+        case mqtt::MODE: hr->auto_mode.set_local(atoi(val), now); break;
+        case mqtt::LOCK: hr->menu_locked.set_local(atoi(val), now); break;
         default: ERR("Non-settable topic change requested: %s", topic);
         }
     }
 
+    time_t now;
     ntptime::NTPTime &time;
     HR20Master &master;
     WiFiClient wifiClient;
