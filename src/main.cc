@@ -67,13 +67,13 @@ struct SyncedValue : public CachedValue<T> {
         // matches what's on remote
         return (this->read_time != 0)
             && ((this->req_time != 0) && (now > this->req_time))
-            && (local != this->remote);
+            && (requested != this->remote);
     }
 
-    T ICACHE_FLASH_ATTR get_local() const { return local; }
+    T ICACHE_FLASH_ATTR get_requested() const { return requested; }
 
-    void ICACHE_FLASH_ATTR set_local(T val, time_t now) {
-        local = val;
+    void ICACHE_FLASH_ATTR set_requested(T val, time_t now) {
+        requested = val;
         req_time = now;
     }
 
@@ -83,7 +83,7 @@ struct SyncedValue : public CachedValue<T> {
     // override for synced values - confirmations reset req_time
     void ICACHE_FLASH_ATTR set_remote(T val, time_t when) {
         this->remote = val;
-        if (this->remote == this->local) this->req_time = 0;
+        if (this->remote == this->requested) this->req_time = 0;
         this->read_time = when;
     }
 
@@ -94,7 +94,7 @@ struct SyncedValue : public CachedValue<T> {
 
 private:
     time_t req_time = 0; // zero means no value change requested
-    T local;
+    T requested;
 };
 
 // I can only fit 4 timers per day in RAM here. should not matter much
@@ -648,7 +648,7 @@ protected:
         if (!p) return;
 
         p->push('A');
-        p->push(temp_wanted.get_local());
+        p->push(temp_wanted.get_requested());
 
         // set the time we should next try to set the value
         temp_wanted.set_req_time(rd_time + RESEND_TIME);
@@ -665,7 +665,7 @@ protected:
         if (!p) return;
 
         p->push('M');
-        p->push(auto_mode.get_local() ? 1 : 0);
+        p->push(auto_mode.get_requested() ? 1 : 0);
 
         // set the time we last requested the change
         auto_mode.set_req_time(rd_time + RESEND_TIME);
@@ -698,8 +698,8 @@ protected:
 
         p->push('W');
         p->push(dow << 4 | slot);
-        p->push(timer.get_local() >> 8);
-        p->push(timer.get_local() && 0xFF);
+        p->push(timer.get_requested() >> 8);
+        p->push(timer.get_requested() && 0xFF);
 
         // set the time we last requested the change
         timer.set_req_time(rd_time + RESEND_TIME);
@@ -989,9 +989,9 @@ struct MQTTPublisher {
 #warning the temp_wanted setting is accurate to 1 degree now. not ideal!
         const char *val = reinterpret_cast<const char*>(payload);
         switch (p.topic) {
-        case mqtt::REQ_TMP: hr->temp_wanted.set_local(atoi(val) * 2, now); break;
-        case mqtt::MODE: hr->auto_mode.set_local(atoi(val), now); break;
-        case mqtt::LOCK: hr->menu_locked.set_local(atoi(val), now); break;
+        case mqtt::REQ_TMP: hr->temp_wanted.set_requested(atoi(val) * 2, now); break;
+        case mqtt::MODE: hr->auto_mode.set_requested(atoi(val), now); break;
+        case mqtt::LOCK: hr->menu_locked.set_requested(atoi(val), now); break;
         default: ERR("Non-settable topic change requested: %s", topic);
         }
     }
