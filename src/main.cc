@@ -112,7 +112,7 @@ struct SyncedValue : public CachedValue<T> {
 
     T ICACHE_FLASH_ATTR get_requested() const { return requested; }
 
-    void ICACHE_FLASH_ATTR set_requested(T val, time_t now) {
+    void ICACHE_FLASH_ATTR set_requested(T val) {
         requested = val;
         resend_ctr.resume();
     }
@@ -156,7 +156,26 @@ void decode_timer(uint16_t timer, uint8_t &hr, uint8_t &min, uint8_t &mode) {
 // categorizes the changes in HR20 model
 enum ChangeCategory {
     CHANGE_FREQUENT = 1,
-    CHANGE_TIMERS   = 2
+    CHANGE_TIMER_MASK = 0x1FE, // mask of timer changes
+    CHANGE_TIMER_0  = 2, // 8 bits of timers correspond to 8 days
+    CHANGE_TIMER_1  = 4,
+    CHANGE_TIMER_2  = 8,
+    CHANGE_TIMER_3  = 16,
+    CHANGE_TIMER_4  = 32,
+    CHANGE_TIMER_5  = 64,
+    CHANGE_TIMER_6  = 128,
+    CHANGE_TIMER_7  = 256
+};
+
+ChangeCategory timer_day_2_change[8] = {
+    CHANGE_TIMER_0,
+    CHANGE_TIMER_1,
+    CHANGE_TIMER_2,
+    CHANGE_TIMER_3,
+    CHANGE_TIMER_4,
+    CHANGE_TIMER_5,
+    CHANGE_TIMER_6,
+    CHANGE_TIMER_7
 };
 
 // models a single HR20
@@ -201,7 +220,37 @@ struct HR20 {
     CachedValue<uint8_t>  ctl_err;
 };
 
-constexpr const uint8_t MAX_HR_COUNT = 32;
+void set_timer_mode(HR20 *hr, uint8_t day, uint8_t slot, const char *val) {
+    if (!hr) return;
+    if (day >= TIMER_DAYS) return;
+    if (slot >= TIMER_SLOTS_PER_DAY) return;
+
+    uint8_t h, m, mode;
+    decode_timer(hr->timers[day][slot].get_requested(), h, m, mode);
+
+    // timer mode is 4 bit
+    mode = atoi(val) & 0x0F;
+
+    hr->timers[day][slot].set_requested(encode_timer(h, m, mode));
+}
+
+void set_timer_time(HR20 *hr, uint8_t day, uint8_t slot, const char *val) {
+    if (!hr) return;
+    if (day >= TIMER_DAYS) return;
+    if (slot >= TIMER_SLOTS_PER_DAY) return;
+
+    uint8_t h, m, mode;
+    decode_timer(hr->timers[day][slot].get_requested(), h, m, mode);
+
+    // time is expected in minutes of the day
+    uint16_t mins = atoi(val);
+    h = mins / 60;
+    m = mins % 60;
+
+    hr->timers[day][slot].set_requested(encode_timer(h, m, mode));
+}
+
+constexpr const uint8_t MAX_HR_COUNT = 29;
 
 struct Model {
     HR20 * ICACHE_FLASH_ATTR operator[](uint8_t idx) {
@@ -602,6 +651,8 @@ protected:
 
         hr->timers[day][slot].set_remote(val, rd_time);
 
+        if (on_change_cb) on_change_cb(addr, timer_day_2_change[day]);
+
         return OK;
     }
 
@@ -921,8 +972,6 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void update(bool sec_pass) {
         client.loop();
 
-        now = time.localTime();
-
         if (!sec_pass) return;
 
         auto sec = second(time.localTime());
@@ -939,6 +988,10 @@ struct MQTTPublisher {
             if (chngs & CHANGE_FREQUENT) {
                 DBG("(MF %u)", addr);
                 publish_frequent(addr);
+            }
+            if (chngs & CHANGE_TIMER_MASK) {
+                DBG("(MT %u)", addr);
+                publish_timers(addr, (chngs >> 1) & 0x0FF);
             }
         }
     }
@@ -1000,6 +1053,37 @@ struct MQTTPublisher {
         publish(p, hr->ctl_err.get_remote());
     }
 
+    ICACHE_FLASH_ATTR void publish_timers(uint8_t addr, uint8_t mask) const {
+        auto *hr = master.model[addr];
+        if (!hr) {
+            ERR("Change on invalid client");
+            return;
+        }
+
+        // only publish timers that have bit set in mask
+        Path p{addr, mqtt::TIMER};
+
+        for (uint8_t d = 0; d < 8; ++d) {
+            if (!((1 << d) & mask)) continue;
+            // change happened to this day
+            for (uint8_t sl = 0; sl < TIMER_SLOTS_PER_DAY; ++sl) {
+                p.day = d;
+                p.slot = sl;
+
+                bool is_synced = hr->timers[d][sl].is_synced();
+
+                uint8_t h, m, mode;
+                decode_timer(hr->timers[d][sl].get_requested(), h, m, mode);
+
+                p.timer_topic = mqtt::TIMER_MODE;
+                publish_subscribe(p, mode, is_synced);
+
+                p.timer_topic = mqtt::TIMER_TIME;
+                publish_subscribe(p, h * 60 + m, is_synced);
+            }
+        }
+    }
+
     ICACHE_FLASH_ATTR void callback(char *topic, byte *payload,
                                     unsigned int length)
     {
@@ -1020,20 +1104,27 @@ struct MQTTPublisher {
 #warning the temp_wanted setting is accurate to 1 degree now. not ideal!
         const char *val = reinterpret_cast<const char*>(payload);
         switch (p.topic) {
-        case mqtt::REQ_TMP: hr->temp_wanted.set_requested(atoi(val) * 2, now); break;
-        case mqtt::MODE: hr->auto_mode.set_requested(atoi(val), now); break;
-        case mqtt::LOCK: hr->menu_locked.set_requested(atoi(val), now); break;
+        case mqtt::REQ_TMP: hr->temp_wanted.set_requested(atoi(val) * 2); break;
+        case mqtt::MODE: hr->auto_mode.set_requested(atoi(val)); break;
+        case mqtt::LOCK: hr->menu_locked.set_requested(atoi(val)); break;
+        case mqtt::TIMER: {
+            // subswitch based on the timer topic
+            switch (p.timer_topic) {
+            case mqtt::TIMER_MODE: set_timer_mode(hr, p.day, p.slot, val); break;
+            case mqtt::TIMER_TIME: set_timer_time(hr, p.day, p.slot, val); break;
+            default: ERR("Non-settable timer topic change requested: %s", topic);
+            }
+        }
         default: ERR("Non-settable topic change requested: %s", topic);
         }
     }
 
-    time_t now;
     ntptime::NTPTime &time;
     HR20Master &master;
     WiFiClient wifiClient;
     /// seriously, const correctness anyone? PubSubClient does not have single const method...
     mutable PubSubClient client;
-    uint8_t states[MAX_HR_COUNT];
+    uint32_t states[MAX_HR_COUNT];
 };
 
 } // namespace mqtt
