@@ -13,7 +13,15 @@ enum Topic {
     REQ_TMP,
     VALVE_WTD,
     WND,
+    TIMER,
     INVALID_TOPIC = 255
+};
+
+enum TimerTopic {
+    TIMER_NONE = 0,
+    TIMER_TIME,
+    TIMER_MODE,
+    INVALID_TIMER_TOPIC = 255
 };
 
 static const char *S_AVG_TMP   = "average_temp";
@@ -24,8 +32,13 @@ static const char *S_MODE      = "mode";
 static const char *S_REQ_TMP   = "requested_temp"; // 14
 static const char *S_VALVE_WTD = "valve_wanted";
 static const char *S_WND       = "window";
+static const char *S_TIMER     = "timer";
 
-ICACHE_FLASH_ATTR static const char *topicStr(Topic topic) {
+// timer subtopics
+static const char *S_TIMER_MODE = "time";
+static const char *S_TIMER_TIME = "mode";
+
+ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     switch (topic) {
     case AVG_TMP:   return S_AVG_TMP;
     case BAT:       return S_BAT;
@@ -35,8 +48,18 @@ ICACHE_FLASH_ATTR static const char *topicStr(Topic topic) {
     case REQ_TMP:   return S_REQ_TMP;
     case VALVE_WTD: return S_VALVE_WTD;
     case WND:       return S_WND;
+    case TIMER:     return S_TIMER;
     default:
         return "invalid!";
+    }
+}
+
+ICACHE_FLASH_ATTR static const char *timer_topic_str(TimerTopic sub) {
+    switch (sub) {
+    case TIMER_TIME: return S_TIMER_TIME;
+    case TIMER_MODE: return S_TIMER_MODE;
+    default:
+        return nullptr;
     }
 }
 
@@ -60,6 +83,9 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
     case 'r':
         if (strcmp(top, S_REQ_TMP) == 0) return REQ_TMP;
         return INVALID_TOPIC;
+    case 't':
+        if (strcmp(top, S_TIMER) == 0) return TIMER;
+        return INVALID_TOPIC;
     case 'v':
         if (strcmp(top, S_VALVE_WTD) == 0) return VALVE_WTD;
         return INVALID_TOPIC;
@@ -71,14 +97,31 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
     }
 }
 
+ICACHE_FLASH_ATTR static TimerTopic parse_timer_topic(const char *top) {
+    if (!top) return INVALID_TIMER_TOPIC;
+
+    if (top[0] == 't') {
+        if (strcmp(top, S_TIMER_TIME) == 0) return TIMER_TIME;
+        return INVALID_TIMER_TOPIC;
+    }
+
+    if (top[0] == 'm') {
+        if (strcmp(top, S_TIMER_MODE) == 0) return TIMER_MODE;
+        return INVALID_TIMER_TOPIC;
+    }
+
+    return INVALID_TIMER_TOPIC;
+}
+
 //
 struct Path {
     static const char SEPARATOR = '/';
     static const constexpr char *prefix = "hr20";
 
-
     ICACHE_FLASH_ATTR Path() {}
-    ICACHE_FLASH_ATTR Path(uint8_t addr, Topic t) : addr(addr), topic(t) {}
+    ICACHE_FLASH_ATTR Path(uint8_t addr, Topic t, TimerTopic st = TIMER_NONE, uint8_t day = 0, uint8_t slot = 0)
+        : addr(addr), day(day), slot(slot), topic(t), timer_topic(st)
+    {}
 
     // UGLY INEFFECTIVE STRING APPEND FOLLOWS
     ICACHE_FLASH_ATTR String compose() const {
@@ -87,7 +130,17 @@ struct Path {
         rv += SEPARATOR;
         rv += addr;
         rv += SEPARATOR;
-        rv += topicStr(topic);
+        rv += topic_str(topic);
+
+        if (topic == TIMER) {
+            rv += SEPARATOR;
+            rv += day;
+            rv += SEPARATOR;
+            rv += slot;
+            rv += SEPARATOR;
+            rv += timer_topic_str(timer_topic);
+        }
+
         return rv;
     }
 
@@ -123,6 +176,31 @@ struct Path {
 
         // now follows the ending element. Parse via parse_topic
         Topic top = parse_topic(pos);
+
+        if (top == INVALID_TOPIC) return {};
+
+        if (top == TIMER) {
+            // day
+            auto d_t = token(pos);
+            uint8_t d = to_num(&pos, d_t.second);
+
+            // is the next char a separator? if not then it wasn't a valid path
+            if (*pos != Path::SEPARATOR) return {};
+
+            auto s_t = token(pos);
+            uint8_t s = to_num(&pos, s_t.second);
+
+            // is the next char a separator? if not then it wasn't a valid path
+            if (*pos != Path::SEPARATOR) return {};
+
+            // now timer topic
+            auto tt = parse_timer_topic(pos);
+
+            if (tt == INVALID_TIMER_TOPIC) return {};
+
+            // whole timer specification is okay
+            return {address, top, tt, d, s};
+        }
 
         return {address, top};
     }
@@ -175,7 +253,10 @@ struct Path {
 
     // client ID. 0 means invalid path!
     uint8_t addr = 0;
-    Topic topic  = INVALID_TOPIC;
+    uint8_t day  = 0;
+    uint8_t slot = 0;
+    Topic topic            = INVALID_TOPIC;
+    TimerTopic timer_topic = TIMER_NONE;
 };
 
 } // namespace mqtt
