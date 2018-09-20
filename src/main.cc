@@ -37,14 +37,18 @@ using SndPacket = PacketQ::Packet;
 // sending packet queue
 using SendQ = PacketQ;
 
-// 10 minutes to resend the change request if we didn't yet get the value change confirmed
-constexpr const time_t RESEND_TIME = 10*60;
+// 2 minutes to resend the change request if we didn't yet get the value change confirmed
+// this is now only used to throw away old packets in packet queue
+constexpr const time_t RESEND_TIME = 2*60;
 
 // Don't try re-reading every time. Skip a few packets in-between
 constexpr const int8_t REREAD_CYCLES = 2;
 
 // Don't try setting value every time. Skip a few packets in-between
 constexpr const int8_t RESEND_CYCLES = 2;
+
+// Max. number of timers queued per one packet exchange
+constexpr const int8_t MAX_QUEUE_TIMERS = 8;
 
 /// Delays re-requests a number of skips. Used to delay re-requests/re-submits of values
 template<int8_t RETRY_SKIPS>
@@ -306,7 +310,7 @@ struct Protocol {
 
     // call this in the right timespot (time to spare) to prepare commands to be sent to clients
     void ICACHE_FLASH_ATTR fill_send_queues() {
-        DBG(" * fill send queues");
+        DBG("(QUEUE)");
         for (unsigned i = 0; i < MAX_HR_COUNT; ++i) {
             HR20 *hr = model[i];
 
@@ -314,7 +318,7 @@ struct Protocol {
             if (hr->last_contact == 0) continue; // not yet seen client
 
             // we might have some changes to queue
-            DBG("   * fill %u", i);
+            DBG("(Q %u)", i);
             queue_updates_for(i, *hr);
         }
     }
@@ -330,7 +334,7 @@ struct Protocol {
         {
             if (crypto.rtc.ss == 0) {
                 // display current time/date in full format
-                DBG(" * %04d-%02d-%02d (%d) %02d:%02d:%02d",
+                DBG("(TM %04d-%02d-%02d (%d) %02d:%02d:%02d)",
                     year(curtime), month(curtime), day(curtime),
                     (int)((dayOfWeek(curtime) + 5) % 7 + 1),
                     hour(curtime), minute(curtime), second(curtime)
@@ -354,7 +358,7 @@ struct Protocol {
         // TODO: Enable this again, but after we use the force flags in sync
         // We now queue requests as a reaction to incoming packet, but that
         // will cause delays when clients switch to low verbosity mode.
-        // if (crypto.rtc.ss == 59) fill_send_queues();
+        if (crypto.rtc.ss == 59) fill_send_queues();
     }
 
 protected:
@@ -374,13 +378,13 @@ protected:
         decoded.mm = packet[4] >> 1;
         decoded.ss = packet[4] & 1 ? 30 : 00;
 
-        DBG(" * Decoded time from sync packet: %02d.%02d.%02d %02d:%02d:%02d",
+        DBG("(RCV SYNC %02d.%02d.%02d %02d:%02d:%02d)",
             decoded.DD, decoded.MM, decoded.YY,
             decoded.hh, decoded.mm, decoded.ss);
 
 #ifndef NTP_CLIENT
         // is this local time or what?
-        DBG(" * Synchronizing time");
+        DBG("(SET TIME)");
         setTime(decoded.hh, decoded.mm, decoded.ss, decoded.DD, decoded.MM, decoded.YY);
 #endif
 
@@ -491,7 +495,7 @@ protected:
             }
 
             // todo: append this somewhere or what?
-            DBGI("%c", c);
+            // DBGI("(V %c)", c);
         }
 
         // will never get here
@@ -657,14 +661,21 @@ protected:
         if (hr.auto_mode.needs_write(rd_time))
             send_set_auto_mode(addr, hr.auto_mode);
 
+        // only allow queueing 8 timers to save time
+        uint8_t tmr_ctr = MAX_QUEUE_TIMERS;
+
         // get timers if we don't have them, set them if change happened
         for (uint8_t dow = 0; dow < 8; ++dow) {
             for (uint8_t slot = 0; slot < TIMER_SLOTS_PER_DAY; ++slot) {
                 auto &timer = hr.timers[dow][slot];
-                if (timer.needs_read(rd_time))
+                if (timer.needs_read(rd_time)) {
                     send_get_timer(addr, dow, slot, timer);
-                if (timer.needs_write(rd_time))
+                    if (!(--tmr_ctr)) return;
+                }
+                if (timer.needs_write(rd_time)) {
                     send_set_timer(addr, dow, slot, timer);
+                    if (!(--tmr_ctr)) return;
+                }
             }
         }
     }
