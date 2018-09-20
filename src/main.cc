@@ -40,19 +40,61 @@ using SendQ = PacketQ;
 // 10 minutes to resend the change request if we didn't yet get the value change confirmed
 constexpr const time_t RESEND_TIME = 10*60;
 
+// Don't try re-reading every time. Skip a few packets in-between
+constexpr const int8_t REREAD_CYCLES = 2;
+
+// Don't try setting value every time. Skip a few packets in-between
+constexpr const int8_t RESEND_CYCLES = 2;
+
+/// Delays re-requests a number of skips. Used to delay re-requests/re-submits of values
+template<int8_t RETRY_SKIPS>
+struct RequestDelay {
+    // starts paused
+    RequestDelay() : counter(-1) {}
+
+    bool should_retry() {
+        if (counter < 0)
+            return false;
+
+        if (counter == 0) {
+            counter = RETRY_SKIPS;
+            return true;
+        }
+
+        counter--;
+        return false;
+    }
+
+    void pause() { counter = -1; }
+    void resume() { counter = 0; }
+
+private:
+    int8_t counter;
+};
+
 // read-only value that gets reported by HR20 (not set back, not changeable)
 template<typename T>
 struct CachedValue {
-    bool ICACHE_FLASH_ATTR needs_read(time_t now) const {
-        return (this->read_time == 0)
-            && ((now - RESEND_TIME) >= this->request_time);
+    CachedValue() : reread_ctr() {
+        reread_ctr.resume(); // we need to know the value immediately if possible
     }
-    void ICACHE_FLASH_ATTR set_remote(T val, time_t when) { remote = val; read_time = when; }
+
+    bool ICACHE_FLASH_ATTR needs_read(time_t now) {
+        // TODO: Too old values could be re-read here by forcing true return val
+        return (read_time == 0) && reread_ctr.should_retry();
+    }
+
+    void ICACHE_FLASH_ATTR set_remote(T val, time_t when) {
+        remote = val;
+        read_time = when;
+        reread_ctr.pause();
+    }
+
     T ICACHE_FLASH_ATTR get_remote() const { return remote; }
-    void ICACHE_FLASH_ATTR set_request_time(time_t when) { request_time = when; }
+
 protected:
-    time_t request_time = 0;
     time_t read_time = 0;
+    RequestDelay<REREAD_CYCLES> reread_ctr;
     T remote;
 };
 
@@ -60,41 +102,31 @@ protected:
 // changes have to be written through to client.
 template<typename T>
 struct SyncedValue : public CachedValue<T> {
-    bool ICACHE_FLASH_ATTR needs_write(time_t now) const {
-        // don't try to update values if we don't they don't match
-        // also don't re-send update before RESEND_TIME elapses
-        // and of course don't send updates if the requested value
-        // matches what's on remote
-        return (this->read_time != 0)
-            && ((this->req_time != 0) && (now > this->req_time))
-            && (requested != this->remote);
+    bool ICACHE_FLASH_ATTR needs_write(time_t now) {
+        return (!is_synced()) && (resend_ctr.should_retry());
     }
 
     T ICACHE_FLASH_ATTR get_requested() const { return requested; }
 
     void ICACHE_FLASH_ATTR set_requested(T val, time_t now) {
         requested = val;
-        req_time = now;
+        resend_ctr.resume();
     }
-
-    // sets the time when we should next try to update remote last time
-    void ICACHE_FLASH_ATTR set_req_time(time_t t) { req_time = t; }
 
     // override for synced values - confirmations reset req_time
     void ICACHE_FLASH_ATTR set_remote(T val, time_t when) {
-        this->remote = val;
-        if (this->remote == this->requested) this->req_time = 0;
-        this->read_time = when;
+        CachedValue<T>::set_remote(val, when);
+        if (is_synced()) this->resend_ctr.pause();
     }
 
     // returns true for values that don't have newer change request
     bool ICACHE_FLASH_ATTR is_synced() const {
-        return req_time == 0;
+        return this->remote == this->requested;
     }
 
 private:
-    time_t req_time = 0; // zero means no value change requested
     T requested;
+    RequestDelay<RESEND_CYCLES> resend_ctr;
 };
 
 // I can only fit 4 timers per day in RAM here. should not matter much
@@ -649,9 +681,6 @@ protected:
 
         p->push('A');
         p->push(temp_wanted.get_requested());
-
-        // set the time we should next try to set the value
-        temp_wanted.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_set_auto_mode(uint8_t addr,
@@ -666,9 +695,6 @@ protected:
 
         p->push('M');
         p->push(auto_mode.get_requested() ? 1 : 0);
-
-        // set the time we last requested the change
-        auto_mode.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_get_timer(uint8_t addr, uint8_t dow,
@@ -682,9 +708,6 @@ protected:
 
         p->push('R');
         p->push(dow << 4 | slot);
-
-        // set the time we last requested the change
-        timer.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_set_timer(uint8_t addr, uint8_t dow,
@@ -700,9 +723,6 @@ protected:
         p->push(dow << 4 | slot);
         p->push(timer.get_requested() >> 8);
         p->push(timer.get_requested() && 0xFF);
-
-        // set the time we last requested the change
-        timer.set_req_time(rd_time + RESEND_TIME);
     }
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
