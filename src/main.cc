@@ -132,7 +132,7 @@ private:
 // I can only fit 4 timers per day in RAM here. should not matter much
 // if someone needs those 8 timers that RFM HR20 supports, feel free
 // to rework this code (maybe by using one slot variable per day)
-constexpr const uint8_t TIMER_SLOTS_PER_DAY = 4;
+constexpr const uint8_t TIMER_SLOTS_PER_DAY = 8;
 
 // timer has 7 slots for days and 1 slot extra for repeated everyday mode
 constexpr const uint8_t TIMER_DAYS = 8;
