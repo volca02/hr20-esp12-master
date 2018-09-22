@@ -1049,8 +1049,11 @@ struct MQTTPublisher {
 
         if (!reconnect()) return;
 
+        // process ONE client (more than one cause weird system freezes)
         for (uint8_t addr = 1; addr < MAX_HR_COUNT; ++addr) {
             auto chngs = states[addr]; states[addr] = 0;
+
+            if (!chngs) continue;
 
             if (chngs & CHANGE_FREQUENT) {
                 DBG("(MF %u)", addr);
@@ -1060,6 +1063,8 @@ struct MQTTPublisher {
                 DBG("(MT %u)", addr);
                 publish_timers(addr, (chngs >> 1) & 0x0FF);
             }
+
+            break;
         }
     }
 
