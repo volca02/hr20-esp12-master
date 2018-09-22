@@ -233,7 +233,7 @@ struct HR20 {
     // controller error
     CachedValue<uint8_t>  ctl_err;
 
-    void set_timer_mode(uint8_t day, uint8_t slot, const char *val) {
+    ICACHE_FLASH_ATTR void set_timer_mode(uint8_t day, uint8_t slot, const char *val) {
         if (day >= TIMER_DAYS) return;
         if (slot >= TIMER_SLOTS_PER_DAY) return;
 
@@ -246,7 +246,7 @@ struct HR20 {
         timers[day][slot].set_requested(encode_timer(h, m, mode));
     }
 
-    void set_timer_time(uint8_t day, uint8_t slot, const char *val) {
+    ICACHE_FLASH_ATTR void set_timer_time(uint8_t day, uint8_t slot, const char *val) {
         if (day >= TIMER_DAYS) return;
         if (slot >= TIMER_SLOTS_PER_DAY) return;
 
@@ -266,7 +266,7 @@ struct HR20 {
 /// Accumulates non-synced client addrs for sync force flags/addrs
 struct ForceFlags {
 
-    void push(uint8_t addr) {
+    ICACHE_FLASH_ATTR void push(uint8_t addr) {
         if (addr >= MAX_HR_COUNT) return;
 
         if (ctr < 2) {
@@ -278,7 +278,8 @@ struct ForceFlags {
     }
 
     template<typename SyncP>
-    void write(SyncP &p) const {
+    ICACHE_FLASH_ATTR void write(SyncP &p) const {
+        DBG("(FORCE %u)", big);
         if (ctr <= 2) {
             p->push(small[0]);
             p->push(small[1]);
