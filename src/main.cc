@@ -1043,22 +1043,23 @@ struct MQTTPublisher {
 
         auto sec = second(time.localTime());
 
-        // TODO: Set this time properly
-        // mqtt only updates once a minute for now (don't block our RFM comms)
-        if (sec != 50) return;
+        // mqtt only updates between :50 and :58
+        if (sec < 50) return;
+        if (sec > 58) return;
 
         if (!reconnect()) return;
 
-        // process ONE client (more than one cause weird system freezes)
+        // process one client per loop call (i.e. per second)
         for (uint8_t addr = 1; addr < MAX_HR_COUNT; ++addr) {
-            auto chngs = states[addr]; states[addr] = 0;
-
+            auto chngs = states[addr];
             if (!chngs) continue;
+            states[addr] = 0;
 
             if (chngs & CHANGE_FREQUENT) {
                 DBG("(MF %u)", addr);
                 publish_frequent(addr);
             }
+
             if (chngs & CHANGE_TIMER_MASK) {
                 DBG("(MT %u)", addr);
                 publish_timers(addr, (chngs >> 1) & 0x0FF);
