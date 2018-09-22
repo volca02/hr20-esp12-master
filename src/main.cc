@@ -50,6 +50,14 @@ constexpr const int8_t RESEND_CYCLES = 2;
 // Max. number of timers queued per one packet exchange
 constexpr const int8_t MAX_QUEUE_TIMERS = 8;
 
+// Max. count of HR clients (and a max addr)
+constexpr const uint8_t MAX_HR_COUNT = 29;
+
+// TODO: Make these configurable.
+// MQTT server address
+constexpr const char *MQTT_SERVER = "192.168.1.22";
+constexpr const char *MQTT_CLIENT_ID = "hr20";
+
 /// Delays re-requests a number of skips. Used to delay re-requests/re-submits of values
 template<int8_t RETRY_SKIPS>
 struct RequestDelay {
@@ -83,7 +91,7 @@ struct CachedValue {
         reread_ctr.resume(); // we need to know the value immediately if possible
     }
 
-    bool ICACHE_FLASH_ATTR needs_read(time_t now) {
+    bool ICACHE_FLASH_ATTR needs_read() {
         // TODO: Too old values could be re-read here by forcing true return val
         return (read_time == 0) && reread_ctr.should_retry();
     }
@@ -106,7 +114,7 @@ protected:
 // changes have to be written through to client.
 template<typename T>
 struct SyncedValue : public CachedValue<T> {
-    bool ICACHE_FLASH_ATTR needs_write(time_t now) {
+    bool ICACHE_FLASH_ATTR needs_write() {
         return (!is_synced()) && (resend_ctr.should_retry());
     }
 
@@ -114,6 +122,11 @@ struct SyncedValue : public CachedValue<T> {
 
     void ICACHE_FLASH_ATTR set_requested(T val) {
         requested = val;
+
+        // don't set requested if we already hold the same value
+        if (!this->needs_read() && is_synced()) return;
+
+        // resume the send requests
         resend_ctr.resume();
     }
 
@@ -178,9 +191,10 @@ ChangeCategory timer_day_2_change[8] = {
     CHANGE_TIMER_7
 };
 
-// models a single HR20
+// models a single HR20 client
 struct HR20 {
     time_t last_contact = 0; // last contact
+    bool synced = false;     // we have fully populated copy of values if true
 
     // == Controllable values ==
     // these are mirrored values - we sync them to HR20 when a change is requested
@@ -218,39 +232,69 @@ struct HR20 {
     CachedValue<uint8_t>  cur_valve_wtd;
     // controller error
     CachedValue<uint8_t>  ctl_err;
+
+    void set_timer_mode(uint8_t day, uint8_t slot, const char *val) {
+        if (day >= TIMER_DAYS) return;
+        if (slot >= TIMER_SLOTS_PER_DAY) return;
+
+        uint8_t h, m, mode;
+        decode_timer(timers[day][slot].get_requested(), h, m, mode);
+
+        // timer mode is 4 bit
+        mode = atoi(val) & 0x0F;
+
+        timers[day][slot].set_requested(encode_timer(h, m, mode));
+    }
+
+    void set_timer_time(uint8_t day, uint8_t slot, const char *val) {
+        if (day >= TIMER_DAYS) return;
+        if (slot >= TIMER_SLOTS_PER_DAY) return;
+
+        uint8_t h, m, mode;
+        decode_timer(timers[day][slot].get_requested(), h, m, mode);
+
+        // time is expected in minutes of the day
+        uint16_t mins = atoi(val);
+        h = mins / 60;
+        m = mins % 60;
+
+        timers[day][slot].set_requested(encode_timer(h, m, mode));
+    }
+
 };
 
-void set_timer_mode(HR20 *hr, uint8_t day, uint8_t slot, const char *val) {
-    if (!hr) return;
-    if (day >= TIMER_DAYS) return;
-    if (slot >= TIMER_SLOTS_PER_DAY) return;
+/// Accumulates non-synced client addrs for sync force flags/addrs
+struct ForceFlags {
 
-    uint8_t h, m, mode;
-    decode_timer(hr->timers[day][slot].get_requested(), h, m, mode);
+    void push(uint8_t addr) {
+        if (addr >= MAX_HR_COUNT) return;
 
-    // timer mode is 4 bit
-    mode = atoi(val) & 0x0F;
+        if (ctr < 2) {
+            small[ctr] = addr;
+        }
 
-    hr->timers[day][slot].set_requested(encode_timer(h, m, mode));
-}
+        ctr++;
+        big += 1 << addr;
+    }
 
-void set_timer_time(HR20 *hr, uint8_t day, uint8_t slot, const char *val) {
-    if (!hr) return;
-    if (day >= TIMER_DAYS) return;
-    if (slot >= TIMER_SLOTS_PER_DAY) return;
+    template<typename SyncP>
+    void write(SyncP &p) const {
+        if (ctr <= 2) {
+            p->push(small[0]);
+            p->push(small[1]);
+        } else {
+            // ATMega should be little endian
+            p->push( big        & 0x0FF);
+            p->push((big >>  8) & 0x0FF);
+            p->push((big >> 16) & 0x0FF);
+            p->push((big >> 24) & 0x0FF);
+        }
+    }
 
-    uint8_t h, m, mode;
-    decode_timer(hr->timers[day][slot].get_requested(), h, m, mode);
-
-    // time is expected in minutes of the day
-    uint16_t mins = atoi(val);
-    h = mins / 60;
-    m = mins % 60;
-
-    hr->timers[day][slot].set_requested(encode_timer(h, m, mode));
-}
-
-constexpr const uint8_t MAX_HR_COUNT = 29;
+    uint8_t ctr = 0;
+    uint8_t small[2] = {0,0};
+    uint32_t big = 0;
+};
 
 struct Model {
     HR20 * ICACHE_FLASH_ATTR operator[](uint8_t idx) {
@@ -705,12 +749,22 @@ protected:
     }
 
     void ICACHE_FLASH_ATTR queue_updates_for(uint8_t addr, HR20 &hr) {
-        // wanted temperature
-        if (hr.temp_wanted.needs_write(rd_time))
-            send_set_temp(addr, hr.temp_wanted);
+        bool synced = true;
 
-        if (hr.auto_mode.needs_write(rd_time))
+        // base values not yet read are not a reason for non-synced state
+        // the reason is that we'll get them for free after the client
+        // shows up
+
+        // wanted temperature
+        if (hr.temp_wanted.needs_write()) {
+            synced = false;
+            send_set_temp(addr, hr.temp_wanted);
+        }
+
+        if (hr.auto_mode.needs_write()) {
+            synced = false;
             send_set_auto_mode(addr, hr.auto_mode);
+        }
 
         // only allow queueing 8 timers to save time
         uint8_t tmr_ctr = MAX_QUEUE_TIMERS;
@@ -719,16 +773,22 @@ protected:
         for (uint8_t dow = 0; dow < 8; ++dow) {
             for (uint8_t slot = 0; slot < TIMER_SLOTS_PER_DAY; ++slot) {
                 auto &timer = hr.timers[dow][slot];
-                if (timer.needs_read(rd_time)) {
+                if (timer.needs_read()) {
+                    synced = hr.synced = false; // shortcut, we might return
                     send_get_timer(addr, dow, slot, timer);
                     if (!(--tmr_ctr)) return;
                 }
-                if (timer.needs_write(rd_time)) {
+                if (timer.needs_write()) {
+                    synced = hr.synced = false;
                     send_set_timer(addr, dow, slot, timer);
                     if (!(--tmr_ctr)) return;
                 }
             }
         }
+
+        // maybe we didn't need anything? In that case consider the client
+        // synced. We will skip any of these in the force flags/addresses
+        hr.synced = synced;
     }
 
     void ICACHE_FLASH_ATTR send_set_temp(uint8_t addr,
@@ -789,7 +849,7 @@ protected:
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
 #ifdef NTP_CLIENT
-        SndPacket *p = sndQ.want_to_send_for(SendQ::SYNC_ADDR, 4, curtime);
+        SndPacket *p = sndQ.want_to_send_for(SendQ::SYNC_ADDR, 8, curtime);
         if (!p) return;
 
         // TODO: force flags, if needed!
@@ -799,9 +859,17 @@ protected:
         p->push((rtc.DD << 5) | rtc.hh);
         p->push(rtc.mm << 1 | (rtc.ss == 30 ? 1 : 0));
 
-        // TODO: flags
-        p->push(0x00);
-        p->push(0x00);
+        // see if we need 1-2 or N valves synced
+        // based on that knowledge, send flags or addresses
+        ForceFlags ff;
+        for (uint8_t a = 0; a < MAX_HR_COUNT;++a) {
+            auto *hr = model[a];
+            if (!hr) continue;
+            if (!hr->synced) ff.push(a);
+        }
+
+        // write 2 byte force addrs or 4 byte sync flags
+        ff.write(p);
 #endif
     }
 
@@ -935,9 +1003,6 @@ namespace mqtt {
 
 struct MQTTPublisher {
     // TODO: Make this configurable!
-    static constexpr const char *mqtt_server = "192.168.1.22";
-    static constexpr const char *client_id = "hr20";
-
     ICACHE_FLASH_ATTR MQTTPublisher(ntptime::NTPTime &time, HR20Master &master)
         : time(time), master(master), wifiClient(), client(wifiClient)
     {
@@ -946,7 +1011,7 @@ struct MQTTPublisher {
     }
 
     ICACHE_FLASH_ATTR void begin() {
-        client.setServer(mqtt_server, 1883);
+        client.setServer(MQTT_SERVER, 1883);
         client.setCallback([&](char *topic, byte *payload, unsigned int length)
                            {
                                callback(topic, payload, length);
@@ -960,7 +1025,7 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR bool reconnect() {
         if (!client.connected()) {
             DBG("(MQTT CONN)");
-            if (!client.connect(client_id)) {
+            if (!client.connect(MQTT_CLIENT_ID)) {
                 ERR("MQTT conn. err.");
                 return false;
             }
@@ -1110,8 +1175,8 @@ struct MQTTPublisher {
         case mqtt::TIMER: {
             // subswitch based on the timer topic
             switch (p.timer_topic) {
-            case mqtt::TIMER_MODE: set_timer_mode(hr, p.day, p.slot, val); break;
-            case mqtt::TIMER_TIME: set_timer_time(hr, p.day, p.slot, val); break;
+            case mqtt::TIMER_MODE: hr->set_timer_mode(p.day, p.slot, val); break;
+            case mqtt::TIMER_TIME: hr->set_timer_time(p.day, p.slot, val); break;
             default: ERR("Non-settable timer topic change requested: %s", topic);
             }
         }
