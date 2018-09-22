@@ -3,6 +3,7 @@
 #include <PubSubClient.h>
 
 namespace mqtt {
+
 // topic enum. Each has different initial letter for simple parsing
 enum Topic {
     AVG_TMP,
@@ -32,11 +33,13 @@ static const char *S_MODE      = "mode";
 static const char *S_REQ_TMP   = "requested_temp"; // 14
 static const char *S_VALVE_WTD = "valve_wanted";
 static const char *S_WND       = "window";
+
 static const char *S_TIMER     = "timer";
+static unsigned    S_TIMER_LEN = 5;
 
 // timer subtopics
-static const char *S_TIMER_MODE = "time";
-static const char *S_TIMER_TIME = "mode";
+static const char *S_TIMER_MODE = "mode";
+static const char *S_TIMER_TIME = "time";
 
 ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     switch (topic) {
@@ -84,7 +87,7 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         if (strcmp(top, S_REQ_TMP) == 0) return REQ_TMP;
         return INVALID_TOPIC;
     case 't':
-        if (strcmp(top, S_TIMER) == 0) return TIMER;
+        if (strncmp(top, S_TIMER, S_TIMER_LEN) == 0) return TIMER;
         return INVALID_TOPIC;
     case 'v':
         if (strcmp(top, S_VALVE_WTD) == 0) return VALVE_WTD;
@@ -125,7 +128,7 @@ struct Path {
 
     // UGLY INEFFECTIVE STRING APPEND FOLLOWS
     ICACHE_FLASH_ATTR String compose() const {
-        String rv(SEPARATOR);
+        String rv(SEPARATOR, 1);
         rv += prefix;
         rv += SEPARATOR;
         rv += addr;
@@ -180,18 +183,26 @@ struct Path {
         if (top == INVALID_TOPIC) return {};
 
         if (top == TIMER) {
+            // skip the timer topic
+            pos = token(pos).first;
+
+            if (*pos != Path::SEPARATOR) return {};
+            ++pos;
+
             // day
             auto d_t = token(pos);
             uint8_t d = to_num(&pos, d_t.second);
 
             // is the next char a separator? if not then it wasn't a valid path
             if (*pos != Path::SEPARATOR) return {};
+            ++pos;
 
             auto s_t = token(pos);
             uint8_t s = to_num(&pos, s_t.second);
 
             // is the next char a separator? if not then it wasn't a valid path
             if (*pos != Path::SEPARATOR) return {};
+            ++pos;
 
             // now timer topic
             auto tt = parse_timer_topic(pos);
