@@ -1212,6 +1212,9 @@ mqtt::MQTTPublisher publisher(time, master);
 
 
 void setup(void) {
+    // set watchdog to 2 seconds.
+    ESP.wdtEnable(2000);
+
     Serial.begin(38400);
     time.begin();
     master.begin();
@@ -1265,6 +1268,8 @@ void loop(void) {
     publisher.update(sec_pass);
 #endif
 
+    // feed the watchdog...
+    ESP.wdtFeed();
 
 #ifdef WEB_SERVER
     server.handleClient();
