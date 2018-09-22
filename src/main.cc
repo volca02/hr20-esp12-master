@@ -866,6 +866,7 @@ protected:
         for (uint8_t a = 0; a < MAX_HR_COUNT;++a) {
             auto *hr = model[a];
             if (!hr) continue;
+            if (hr->last_contact == 0) continue;
             if (!hr->synced) ff.push(a);
         }
 
