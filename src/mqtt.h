@@ -128,7 +128,8 @@ struct Path {
 
     // UGLY INEFFECTIVE STRING APPEND FOLLOWS
     ICACHE_FLASH_ATTR String compose() const {
-        String rv(SEPARATOR, 1);
+        String rv;
+        rv += SEPARATOR;
         rv += prefix;
         rv += SEPARATOR;
         rv += addr;
