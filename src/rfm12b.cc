@@ -194,7 +194,7 @@ bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
     auto st = readStatus();
 
     if (st & RFM_STATUS_RGUR) {
-        DBG(" ! RGUR");
+        ERR("RGUR");
     }
 
     if (st & RFM_STATUS_RGIT) {
@@ -208,7 +208,10 @@ bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
 
 void RFM12B::switch_to_rx() {
     if (mode != RX) {
-        DBG("(RX %u)", counter); counter = 0;
+#ifdef DEBUG_RFM
+        DBG("(RX %u)", counter);
+#endif
+        counter = 0;
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
               RFM_POWER_MANAGEMENT_EBB |
@@ -223,7 +226,10 @@ void RFM12B::switch_to_tx() {
     if (out.empty()) return;
 
     if (mode != TX) {
-        DBG("(TX %u)", counter); counter = 0;
+#ifdef DEBUG_RFM
+        DBG("(TX %u)", counter);
+#endif
+        counter = 0;
         // bogus before switching
         spi16(RFM_TX_WRITE_CMD | 0xAA);
         spi16(RFM_TX_WRITE_CMD | 0xAA);
@@ -238,7 +244,10 @@ void RFM12B::switch_to_tx() {
 
 void RFM12B::switch_to_idle() {
     if (mode != IDLE) {
-        DBG("(IDLE %u)", counter); counter = 0;
+#ifdef DEBUG_RFM
+        DBG("(IDLE %u)", counter);
+#endif
+        counter = 0;
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
               RFM_POWER_MANAGEMENT_EBB |
