@@ -53,6 +53,12 @@ constexpr const int8_t MAX_QUEUE_TIMERS = 8;
 // Max. count of HR clients (and a max addr)
 constexpr const uint8_t MAX_HR_COUNT = 29;
 
+// Max. count of HR clients (and a max addr)
+#define c2temp(c) (c*2)
+constexpr const uint8_t TEMP_MIN = c2temp(5);
+constexpr const uint8_t TEMP_MAX = c2temp(30);
+
+
 // TODO: Make these configurable.
 // MQTT server address
 constexpr const char *MQTT_SERVER = "192.168.1.22";
@@ -128,6 +134,11 @@ struct SyncedValue : public CachedValue<T> {
 
         // resume the send requests
         resend_ctr.resume();
+    }
+
+    void ICACHE_FLASH_ATTR reset_requested() {
+        this->requested = this->remote;
+        resend_ctr.pause();
     }
 
     // override for synced values - confirmations reset req_time
@@ -793,6 +804,19 @@ protected:
 #ifdef VERBOSE
         DBG("   * TEMP %u", addr);
 #endif
+
+        uint8_t temp = temp_wanted.get_requested();
+
+        if (temp < TEMP_MIN - 1) {
+            ERR("Temp too low %d", temp);
+            temp_wanted.reset_requested();
+        }
+
+        if (temp > TEMP_MAX + 1) {
+            ERR("Temp too high %d", temp);
+            temp_wanted.reset_requested();
+        }
+
         // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
@@ -1099,6 +1123,7 @@ struct MQTTPublisher {
         publish_subscribe(p, hr->auto_mode.get_remote(), hr->auto_mode.is_synced());
 
         // TODO: test_auto
+        // TODO: last_seen
 
         p.topic = mqtt::LOCK;
         publish_subscribe(p, hr->menu_locked.get_remote(), hr->auto_mode.is_synced());
@@ -1117,7 +1142,7 @@ struct MQTTPublisher {
         // TODO: Fix formatting for temp_wanted - float?
         // temp_wanted is in 0.5 C
         p.topic = mqtt::REQ_TMP;
-        publish_subscribe(p, hr->temp_wanted.get_remote() / 2, hr->auto_mode.is_synced());
+        publish_subscribe(p, hr->temp_wanted.get_remote(), hr->auto_mode.is_synced());
 
         p.topic = mqtt::VALVE_WTD;
         publish(p, hr->cur_valve_wtd.get_remote());
@@ -1177,7 +1202,7 @@ struct MQTTPublisher {
 #warning the temp_wanted setting is accurate to 1 degree now. not ideal!
         const char *val = reinterpret_cast<const char*>(payload);
         switch (p.topic) {
-        case mqtt::REQ_TMP: hr->temp_wanted.set_requested(atoi(val) * 2); break;
+        case mqtt::REQ_TMP: hr->temp_wanted.set_requested(atoi(val)); break;
         case mqtt::MODE: hr->auto_mode.set_requested(atoi(val)); break;
         case mqtt::LOCK: hr->menu_locked.set_requested(atoi(val)); break;
         case mqtt::TIMER: {
