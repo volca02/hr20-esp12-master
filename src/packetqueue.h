@@ -42,6 +42,18 @@ struct PacketQ {
         time_t time = 0;
     };
 
+    //
+    void clear() {
+        for (int i = 0; i < PACKET_QUEUE_LEN; ++i) {
+            que[i].clear();
+        }
+
+        // let's hope someone wasn't sending something...
+        sending = nullptr;
+        prologue.clear();
+        cmac.clear();
+    }
+
     /// insert into queue or return nullptr if full
     /// returns packet structure to be filled with data
     Packet * ICACHE_FLASH_ATTR want_to_send_for(uint8_t addr, uint8_t bytes, time_t curtime) {
@@ -92,7 +104,7 @@ struct PacketQ {
             Item &it = que[i];
             if (it.addr == addr) {
 #ifdef VERBOSE
-                DBG(" * PREP TO SND [%d]", i);
+                DBG("(PREP SND %d)", i);
 #endif
                 sending = &it;
                 bool isSync = (it.addr == SYNC_ADDR);
@@ -141,7 +153,9 @@ struct PacketQ {
             }
         }
 
-        DBG(" * PREP NO PKT");
+#ifdef VERBOSE
+        DBG("(NOTHING FOR %d)", addr);
+#endif
         return false;
     }
 
@@ -205,5 +219,5 @@ struct PacketQ {
     Item *sending = nullptr;
     ShortQ<6> prologue; // stores sync-word, size and optionally an address
     ShortQ<6> cmac; // stores cmac for sent packet, and 2 dummy bytes
-    time_t packet_max_age;
+    const time_t packet_max_age;
 };
