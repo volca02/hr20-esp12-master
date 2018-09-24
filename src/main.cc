@@ -421,7 +421,10 @@ struct Protocol {
                                   bool changed_time)
     {
         // clear
-        if (crypto.rtc.ss == 0) last_addr = 0xFF;
+        if (crypto.rtc.ss == 0) {
+            last_addr = 0xFF;
+            sndQ.clear(); // everything old is lost by design.
+        }
 
         if ((crypto.rtc.ss == 0 ||
              crypto.rtc.ss == 30))
@@ -445,14 +448,6 @@ struct Protocol {
             // and immediately prepare to send it
             sndQ.prepare_to_send_to(SendQ::SYNC_ADDR);
         }
-
-        // right before the next minute starts,
-        // we diff the model and fill the queues
-
-        // TODO: Enable this again, but after we use the force flags in sync
-        // We now queue requests as a reaction to incoming packet, but that
-        // will cause delays when clients switch to low verbosity mode.
-        if (crypto.rtc.ss == 59) fill_send_queues();
     }
 
 protected:
@@ -863,11 +858,15 @@ protected:
         // see if we need 1-2 or N valves synced
         // based on that knowledge, send flags or addresses
         ForceFlags ff;
-        for (uint8_t a = 0; a < MAX_HR_COUNT;++a) {
-            auto *hr = model[a];
-            if (!hr) continue;
-            if (hr->last_contact == 0) continue;
-            if (!hr->synced) ff.push(a);
+
+        // only fill force flags on :30
+        if (rtc.ss == 30) {
+            for (uint8_t a = 0; a < MAX_HR_COUNT;++a) {
+                auto *hr = model[a];
+                if (!hr) continue;
+                if (hr->last_contact == 0) continue;
+                if (!hr->synced) ff.push(a);
+            }
         }
 
         // write 2 byte force addrs or 4 byte sync flags
@@ -957,7 +956,7 @@ struct HR20Master {
         --length;
 
         if (!length) {
-            DBG("(PKT %u)", packet.size());
+            DBG("(RCV %u)", packet.size());
             proto.receive(packet);
             wait_for_sync();
         }
@@ -970,6 +969,7 @@ struct HR20Master {
             if (b >= 0) {
                 if (radio.send(b)) {
                     queue.pop();
+                    if (queue.peek() < 0) DBG("(SNT)");
                 } else {
                     // come back after the radio gets free
                     return true;
