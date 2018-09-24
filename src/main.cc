@@ -85,7 +85,7 @@ struct RequestDelay {
 
     void pause() { counter = -1; }
     void resume() { counter = 0; }
-
+    bool is_paused() const { return counter < 0; }
 private:
     int8_t counter;
 };
@@ -144,7 +144,12 @@ struct SyncedValue : public CachedValue<T> {
     // override for synced values - confirmations reset req_time
     void ICACHE_FLASH_ATTR set_remote(T val, time_t when) {
         CachedValue<T>::set_remote(val, when);
-        if (is_synced()) this->resend_ctr.pause();
+        // if none was requested in the meantime, also set requested
+        if (this->resend_ctr.is_paused()) {
+            this->requested = this->remote;
+        } else {
+            if (is_synced()) this->resend_ctr.pause();
+        }
     }
 
     // returns true for values that don't have newer change request
