@@ -868,6 +868,7 @@ protected:
 
     void ICACHE_FLASH_ATTR queue_updates_for(uint8_t addr, HR20 &hr) {
         bool synced = true;
+        bool was_synced = hr.synced;
 
         // base values not yet read are not a reason for non-synced state
         // the reason is that we'll get them for free after the client
@@ -907,8 +908,9 @@ protected:
         // maybe we didn't need anything? In that case consider the client
         // synced. We will skip any of these in the force flags/addresses
         hr.synced = synced;
-        if (synced) {
-            DBG("(SYNCED %d)", addr);
+        if (synced && !was_synced) {
+            // report the client is fully synced
+            DBG("(OK %d)", addr);
         }
     }
 

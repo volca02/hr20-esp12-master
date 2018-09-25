@@ -6,7 +6,7 @@ namespace mqtt {
 
 // topic enum. Each has different initial letter for simple parsing
 enum Topic {
-    AVG_TMP,
+    AVG_TMP = 1,
     BAT,
     ERR,
     LOCK,
