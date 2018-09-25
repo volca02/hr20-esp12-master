@@ -252,9 +252,7 @@ private:
     RequestDelay<RESEND_CYCLES> resend_ctr;
 };
 
-// I can only fit 4 timers per day in RAM here. should not matter much
-// if someone needs those 8 timers that RFM HR20 supports, feel free
-// to rework this code (maybe by using one slot variable per day)
+// rfm version of OpenHR20 supports 8 timers a day
 constexpr const uint8_t TIMER_SLOTS_PER_DAY = 8;
 
 // timer has 7 slots for days and 1 slot extra for repeated everyday mode
@@ -527,9 +525,12 @@ struct Protocol {
     void ICACHE_FLASH_ATTR update(time_t curtime,
                                   bool changed_time)
     {
+        // reset last_addr every second. this way we limit comms to 1 exchange
+        // per second
+        last_addr = 0xFF;
+
         // clear
         if (crypto.rtc.ss == 0) {
-            last_addr = 0xFF;
             sndQ.clear(); // everything old is lost by design.
         }
 
@@ -906,6 +907,9 @@ protected:
         // maybe we didn't need anything? In that case consider the client
         // synced. We will skip any of these in the force flags/addresses
         hr.synced = synced;
+        if (synced) {
+            DBG("(SYNCED %d)", addr);
+        }
     }
 
     void ICACHE_FLASH_ATTR send_set_temp(uint8_t addr,
@@ -1352,6 +1356,8 @@ struct MQTTPublisher {
         }
         default: ERR("Non-settable topic change requested: %s", topic);
         }
+
+        DBG("(MQC %d %d)", p.addr, p.topic);
     }
 
     ntptime::NTPTime &time;
