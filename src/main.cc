@@ -90,28 +90,109 @@ private:
     int8_t counter;
 };
 
+// 8bit flags packed in uint8_t
+struct Flags {
+    class const_accessor;
+
+    struct accessor {
+        friend class const_accessor;
+
+        accessor(Flags &f, uint8_t idx) : f(f), idx(idx)
+        {}
+
+        operator bool() const {
+            return f.val & (1 << idx);
+        }
+
+        bool operator=(bool b) {
+            auto m = mask();
+            f.val = (f.val & ~m) | (b ? m : 0);
+            return operator bool();
+        }
+
+    protected:
+        uint8_t mask() const { return 1 << idx; }
+        Flags &f;
+        uint8_t idx;
+    };
+
+    struct const_accessor {
+        const_accessor(accessor &a) : f(a.f), idx(a.idx) {}
+        const_accessor(const Flags &f, uint8_t idx) : f(f), idx(idx)
+        {}
+
+        operator bool() const {
+            return f.val & (1 << idx);
+        }
+
+    protected:
+        uint8_t mask() const { return 1 << idx; }
+        const Flags &f;
+        uint8_t idx;
+    };
+
+    const_accessor operator[](uint8_t flag) const {
+        return {*this, flag};
+    }
+
+    accessor operator[](uint8_t flag) {
+        return {*this, flag};
+    }
+
+private:
+    uint8_t val = 0;
+};
+
 // read-only value that gets reported by HR20 (not set back, not changeable)
 template<typename T>
 struct CachedValue {
+    // bitfield flags. internal rep to save space instead of bools...
+    enum ValueFlags {
+        REMOTE_VALID = 1,
+        PUBLISHED    = 2,
+        SUBSCRIBED   = 4
+    };
+
     CachedValue() : reread_ctr() {
         reread_ctr.resume(); // we need to know the value immediately if possible
     }
 
     bool ICACHE_FLASH_ATTR needs_read() {
         // TODO: Too old values could be re-read here by forcing true return val
-        return (read_time == 0) && reread_ctr.should_retry();
+        return (!remote_valid()) && reread_ctr.should_retry();
     }
 
-    void ICACHE_FLASH_ATTR set_remote(T val, time_t when) {
+    void ICACHE_FLASH_ATTR set_remote(T val) {
         remote = val;
-        read_time = when;
+        remote_valid() = true;
+        published()    = false;
         reread_ctr.pause();
     }
 
     T ICACHE_FLASH_ATTR get_remote() const { return remote; }
 
+    Flags::accessor published() {
+        return flags[PUBLISHED];
+    }
+
+    Flags::const_accessor published() const {
+        return flags[PUBLISHED];
+    }
+
+    Flags::accessor subscribed() {
+        return flags[SUBSCRIBED];
+    }
+
+    Flags::const_accessor subscribed() const {
+        return flags[SUBSCRIBED];
+    }
+
 protected:
-    time_t read_time = 0;
+    ICACHE_FLASH_ATTR Flags::accessor remote_valid() {
+        return flags[REMOTE_VALID];
+    };
+
+    Flags flags;
     RequestDelay<REREAD_CYCLES> reread_ctr;
     T remote;
 };
@@ -142,13 +223,22 @@ struct SyncedValue : public CachedValue<T> {
     }
 
     // override for synced values - confirmations reset req_time
-    void ICACHE_FLASH_ATTR set_remote(T val, time_t when) {
-        CachedValue<T>::set_remote(val, when);
+    void ICACHE_FLASH_ATTR set_remote(T val) {
+        // set over a known prev. value should reset set requests
+        bool diff = this->remote != val && this->remote_valid();
+
+        CachedValue<T>::set_remote(val);
         // if none was requested in the meantime, also set requested
         if (this->resend_ctr.is_paused()) {
             this->requested = this->remote;
         } else {
-            if (is_synced()) this->resend_ctr.pause();
+            // set went through or was overwritten
+            if (is_synced() || diff) {
+                // don't want to set any more
+                this->resend_ctr.pause();
+                // sync the value just in case it was a diff
+                this->requested = this->remote;
+            }
         }
     }
 
@@ -337,7 +427,8 @@ struct Protocol {
     // bitfield
     enum Error {
         OK = 0, // no bit allocated for OK
-        ERR_PROTO = 1
+        ERR_PROTO = 1,
+        ERR_MODEL = 2
     };
 
     void ICACHE_FLASH_ATTR set_callback(const OnChangeCb &cb) {
@@ -529,8 +620,9 @@ protected:
             case 'V':
                 err |= on_version(addr, packet); break;
                 // these all respond with debug response
-            case 'D': // Debug command response
             case 'A': // Set temperatures response (debug)
+                err |= on_temperature(addr, packet); break;
+            case 'D': // Debug command response
             case 'M': // Mode command response
                 err |= on_debug(addr, packet); break;
             case 'T': // Watch command response (reads watched variables from PGM)
@@ -607,10 +699,23 @@ protected:
         return OK;
     }
 
-    bool ICACHE_FLASH_ATTR on_debug(uint8_t addr, RcvPacket &p) {
+    Error ICACHE_FLASH_ATTR on_temperature(uint8_t addr, RcvPacket &p) {
+        if (p.rest_size() < 9) {
+            ERR("BAD TEMP %d", addr);
+            // reset the temp request status on the HR20 that reported this problem
+            HR20 *hr = model[addr];
+            if (!hr) return ERR_MODEL;
+            hr->temp_wanted.reset_requested();
+            return ERR_PROTO; // can't continue after this...
+        }
+
+        return on_debug(addr, p);
+    }
+
+    Error ICACHE_FLASH_ATTR on_debug(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 9) {
             ERR("SHORT DBG");
-            return true;
+            return ERR_PROTO;
         }
 
         // TODO: Can't just store the value here, the client seems to accumulate
@@ -637,17 +742,17 @@ protected:
 
         // fetch client from model
         HR20 *hr = model[addr];
-        if (!hr) return ERR_PROTO;
+        if (!hr) return ERR_MODEL;
 
-        hr->auto_mode.set_remote(min_ctl & 0x80, rd_time);
-        hr->test_auto.set_remote(min_ctl & 0x40, rd_time);
-        hr->menu_locked.set_remote(sec_mm & 0x80, rd_time);
-        hr->mode_window.set_remote(sec_mm & 0x40, rd_time);
-        hr->temp_avg.set_remote(tmp_avg_h << 8 | tmp_avg_l, rd_time);
-        hr->bat_avg.set_remote(bat_avg_h << 8 | bat_avg_l, rd_time);
-        hr->temp_wanted.set_remote(tmp_wtd, rd_time);
-        hr->cur_valve_wtd.set_remote(valve_wtd, rd_time);
-        hr->ctl_err.set_remote(ctl_err, rd_time);
+        hr->auto_mode.set_remote(min_ctl & 0x80);
+        hr->test_auto.set_remote(min_ctl & 0x40);
+        hr->menu_locked.set_remote(sec_mm & 0x80);
+        hr->mode_window.set_remote(sec_mm & 0x40);
+        hr->temp_avg.set_remote(tmp_avg_h << 8 | tmp_avg_l);
+        hr->bat_avg.set_remote(bat_avg_h << 8 | bat_avg_l);
+        hr->temp_wanted.set_remote(tmp_wtd);
+        hr->cur_valve_wtd.set_remote(valve_wtd);
+        hr->ctl_err.set_remote(ctl_err);
 
 #ifdef VERBOSE
         DBG(" * DBG RESP OK");
@@ -659,7 +764,7 @@ protected:
         return OK;
     }
 
-    bool ICACHE_FLASH_ATTR on_watch(uint8_t addr, RcvPacket &p) {
+    Error ICACHE_FLASH_ATTR on_watch(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 3) {
             ERR("SHORT WATCH");
             return ERR_PROTO;
@@ -676,7 +781,7 @@ protected:
     }
 
 
-    bool ICACHE_FLASH_ATTR on_timers(uint8_t addr, RcvPacket &p) {
+    Error ICACHE_FLASH_ATTR on_timers(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 3) {
             ERR("SHORT TMR");
             return ERR_PROTO;
@@ -688,7 +793,7 @@ protected:
 
         // val: time | (mode << 12). Stored packed here
         HR20 *hr = model[addr];
-        if (!hr) return ERR_PROTO;
+        if (!hr) return ERR_MODEL;
 
         uint8_t day  = idx >> 4;
         uint8_t slot = idx & 0xF;
@@ -705,14 +810,14 @@ protected:
             return ERR_PROTO;
         }
 
-        hr->timers[day][slot].set_remote(val, rd_time);
+        hr->timers[day][slot].set_remote(val);
 
         if (on_change_cb) on_change_cb(addr, timer_day_2_change[day]);
 
         return OK;
     }
 
-    bool ICACHE_FLASH_ATTR on_eeprom(uint8_t addr, RcvPacket &p) {
+    Error ICACHE_FLASH_ATTR on_eeprom(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 2) {
             ERR("SHORT EEPROM");
             return ERR_PROTO;
@@ -727,7 +832,7 @@ protected:
         return OK;
     }
 
-    bool ICACHE_FLASH_ATTR on_menu_lock(uint8_t addr, RcvPacket &p) {
+    Error ICACHE_FLASH_ATTR on_menu_lock(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 1) {
             ERR("SHORT MLCK");
             return ERR_PROTO;
@@ -736,15 +841,15 @@ protected:
         uint8_t menu_locked = p.pop();
 
         HR20 *hr = model[addr];
-        if (!hr) return ERR_PROTO;
+        if (!hr) return ERR_MODEL;
 
         hr->last_contact = rd_time;
-        hr->menu_locked.set_remote(menu_locked != 0, rd_time);
+        hr->menu_locked.set_remote(menu_locked != 0);
 
         return OK;
     }
 
-    bool ICACHE_FLASH_ATTR on_reboot(uint8_t addr, RcvPacket &p) {
+    Error ICACHE_FLASH_ATTR on_reboot(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 2) {
             ERR("SHORT REBOOT");
             return ERR_PROTO;
@@ -947,7 +1052,7 @@ struct HR20Master {
 
         // TODO: if it's 00 or 30, we send sync
         if (sec_pass) {
-            DBGI("\r(%d)", crypto.rtc.ss);
+            DBGI("\r[%d]", crypto.rtc.ss);
             time_t curtime = time.localTime();
             proto.update(curtime, changed_time);
         }
@@ -1099,6 +1204,32 @@ struct MQTTPublisher {
     }
 
     template <typename T>
+    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, CachedValue<T> &val) const
+    {
+        String path = p.compose();
+        if (!val.published()) {
+            String sv(val.get_remote());
+            client.publish(path.c_str(), sv.c_str());
+            val.published() = true;
+        }
+
+        if (!val.subscribed()) {
+            client.subscribe(path.c_str());
+            val.subscribed() = true;
+        }
+    }
+
+    template<typename T>
+    ICACHE_FLASH_ATTR void publish(const Path &p, CachedValue<T> &val) const {
+        if (val.published()) return;
+
+        String sv(val.get_remote());
+        String path = p.compose();
+        client.publish(path.c_str(), sv.c_str());
+        val.published() = true;
+    }
+
+    template <typename T>
     ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, const T &val,
                                              bool do_publish) const
     {
@@ -1125,35 +1256,35 @@ struct MQTTPublisher {
         Path p{addr, mqtt::INVALID_TOPIC};
 
         p.topic = mqtt::MODE;
-        publish_subscribe(p, hr->auto_mode.get_remote(), hr->auto_mode.is_synced());
+        publish_subscribe(p, hr->auto_mode);
 
         // TODO: test_auto
         // TODO: last_seen
 
         p.topic = mqtt::LOCK;
-        publish_subscribe(p, hr->menu_locked.get_remote(), hr->auto_mode.is_synced());
+        publish_subscribe(p, hr->menu_locked);
 
         p.topic = mqtt::WND;
-        publish(p, hr->mode_window.get_remote());
+        publish(p, hr->mode_window);
 
         // TODO: this is in 0.01 of C, change it to float?
         p.topic = mqtt::AVG_TMP;
-        publish(p, hr->temp_avg.get_remote());
+        publish(p, hr->temp_avg);
 
         // TODO: Battery is in 0.01 of V, change it to float?
         p.topic = mqtt::BAT;
-        publish(p, hr->bat_avg.get_remote());
+        publish(p, hr->bat_avg);
 
         // TODO: Fix formatting for temp_wanted - float?
         // temp_wanted is in 0.5 C
         p.topic = mqtt::REQ_TMP;
-        publish_subscribe(p, hr->temp_wanted.get_remote(), hr->auto_mode.is_synced());
+        publish_subscribe(p, hr->temp_wanted);
 
         p.topic = mqtt::VALVE_WTD;
-        publish(p, hr->cur_valve_wtd.get_remote());
+        publish(p, hr->cur_valve_wtd);
 
         p.topic = mqtt::ERR;
-        publish(p, hr->ctl_err.get_remote());
+        publish(p, hr->ctl_err);
     }
 
     ICACHE_FLASH_ATTR void publish_timers(uint8_t addr, uint8_t mask) const {
@@ -1173,6 +1304,7 @@ struct MQTTPublisher {
                 p.day = d;
                 p.slot = sl;
 
+                // TODO: Rework this to implicit conversion system (integrated CachedValue handling)
                 bool is_synced = hr->timers[d][sl].is_synced();
 
                 uint8_t h, m, mode;
