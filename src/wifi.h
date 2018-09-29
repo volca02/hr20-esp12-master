@@ -1,3 +1,5 @@
 #pragma once
+#include "config.h"
 
-void setupWifi();
+void setupWifi(Config &config); 
+ 

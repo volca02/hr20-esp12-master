@@ -8,6 +8,7 @@
 #include "mqtt.h"
 #endif
 
+#include "config.h"
 #include "queue.h"
 #include "crypto.h"
 #include "packetqueue.h"
@@ -20,10 +21,6 @@
 // 255 is OpenHR20 default. (122 minutes after time sync)
 // TODO: make time updates perpetual and resolve out of sync client issues
 // constexpr const uint8_t SYNC_COUNT = 255;
-
-// custom specified RFM password
-// TODO: set this via -DRFM_PASS macros for convenient customization, or allow setting this via some web interface
-constexpr const uint8_t RFM_PASS[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
 
 // sent packet definition...
 // RFM_FRAME_MAX is 80, we have to have enough space for that too
@@ -58,11 +55,7 @@ constexpr const uint8_t MAX_HR_COUNT = 29;
 constexpr const uint8_t TEMP_MIN = c2temp(5);
 constexpr const uint8_t TEMP_MAX = c2temp(30);
 
-
-// TODO: Make these configurable.
-// MQTT server address
-constexpr const char *MQTT_SERVER = "192.168.1.22";
-constexpr const char *MQTT_CLIENT_ID = "hr20";
+Config config;
 
 /// Delays re-requests a number of skips. Used to delay re-requests/re-submits of values
 template<int8_t RETRY_SKIPS>
@@ -1039,9 +1032,9 @@ protected:
 
 /// Implements the state machine for packet sending/retrieval and radio control.
 struct HR20Master {
-    ICACHE_FLASH_ATTR HR20Master(ntptime::NTPTime &tm)
+    ICACHE_FLASH_ATTR HR20Master(ntptime::NTPTime &tm, Config &config)
         : time(tm),
-          crypto{RFM_PASS, time},
+          crypto{config.rfm_pass, time},
           queue{crypto, RESEND_TIME},
           proto{model, time, crypto, queue}
     {}
@@ -1153,7 +1146,7 @@ struct MQTTPublisher {
     }
 
     ICACHE_FLASH_ATTR void begin() {
-        client.setServer(MQTT_SERVER, 1883);
+        client.setServer(config.mqtt_server, config.mqtt_port);
         client.setCallback([&](char *topic, byte *payload, unsigned int length)
                            {
                                callback(topic, payload, length);
@@ -1167,7 +1160,7 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR bool reconnect() {
         if (!client.connected()) {
             DBG("(MQTT CONN)");
-            if (!client.connect(MQTT_CLIENT_ID)) {
+            if (!client.connect(config.mqtt_client_id)) {
                 ERR("MQTT conn. err.");
                 return false;
             }
@@ -1375,7 +1368,7 @@ struct MQTTPublisher {
 
 ntptime::NTPTime time;
 
-HR20Master master{time};
+HR20Master master{time,config};
 int last_int = 1;
 
 #ifdef WEB_SERVER
@@ -1388,17 +1381,21 @@ mqtt::MQTTPublisher publisher(time, master);
 
 
 void setup(void) {
+
+    Serial.begin(38400);
+    //must be before wdtEnable
+    config.begin();
+    setupWifi(config);
+
     // set watchdog to 2 seconds.
     ESP.wdtEnable(2000);
 
-    Serial.begin(38400);
     time.begin();
     master.begin();
 
     // TODO: this is perhaps useful for something (wifi, ntp) but not sure
     randomSeed(micros());
 
-    setupWifi();
 
 #ifdef MQTT
     publisher.begin();
