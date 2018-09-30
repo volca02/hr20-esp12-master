@@ -69,9 +69,9 @@ struct RFM12B {
     /// to be called from the main loop
     void poll();
 
-    bool isIdle() const { return mode == IDLE; }
-    bool isSending() const { return mode == TX; }
-    bool isReceiving() const { return mode == RX; }
+    bool is_idle() const { return mode == IDLE; }
+    bool is_sending() const { return mode == TX; }
+    bool is_receiving() const { return mode == RX; }
 
 protected:
     // TODO: Align this with PacketQ's SENT_PACKET_LEN
@@ -83,7 +83,7 @@ protected:
     uint8_t counter = 0; // envent counter - read/written bytes, reset on switch_*
 
     /// reads the status word
-    uint16_t readStatus();
+    uint16_t read_status();
 
     // receives single byte data from the radio, or -1 if none are available
     int recv_byte();

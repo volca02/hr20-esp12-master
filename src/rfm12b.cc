@@ -47,8 +47,8 @@ void RFM12B::begin() {
 
     // the rest of this ctor is just stock initialization as
     // copied from OpenHR20's rfm.c initialization routine
-    readStatus();
-    readStatus();
+    read_status();
+    read_status();
 
     // write some bogus data to fill the TX input while we set the radio up
     spi16(RFM_TX_WRITE_CMD | 0xAA);
@@ -167,7 +167,7 @@ void ICACHE_FLASH_ATTR RFM12B::poll() {
 }
 
 
-uint16_t ICACHE_FLASH_ATTR RFM12B::readStatus() {
+uint16_t ICACHE_FLASH_ATTR RFM12B::read_status() {
     return spi16(0x00);
 }
 
@@ -176,7 +176,7 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
     // can't receive in TX mode
     if (mode == TX) return -2;
 
-    auto st = readStatus();
+    auto st = read_status();
     if (st & RFM_STATUS_FFIT) {
         // forced RX as the radio woken up from IDLE for sure
         mode = RX;
@@ -191,7 +191,7 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
 bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
     if (mode != TX) return false;
 
-    auto st = readStatus();
+    auto st = read_status();
 
     if (st & RFM_STATUS_RGUR) {
         ERR("RGUR");

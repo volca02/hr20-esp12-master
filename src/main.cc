@@ -287,6 +287,10 @@ ChangeCategory timer_day_2_change[8] = {
     CHANGE_TIMER_7
 };
 
+uint8_t change_get_timer_mask(uint8_t change) {
+    return (change & CHANGE_TIMER_MASK) >> 1;
+}
+
 // models a single HR20 client
 struct HR20 {
     time_t last_contact = 0; // last contact
@@ -1121,6 +1125,22 @@ struct HR20Master {
         radio.wait_for_sync();
     }
 
+    /** indicates master has no time-sensitive work
+     * going on, so we can do some time consuming updates that could break
+     * radio comms.
+     */
+    bool ICACHE_FLASH_ATTR is_idle() {
+        // every second if we have realtime
+#ifndef NO_REALTIME
+        auto millis = time.getMillis();
+        // every second half of every second (not last 100 ms though, sending
+        // can take time), but only if radio is idle
+        return (millis >= 500) && (millis < 900) && radio.is_idle();
+#endif
+        auto sec = second(time.localTime());
+        return (sec >= 50) && (sec <= 58) && radio.is_idle();
+    }
+
     // RTC with NTP synchronization
     Config &config;
     ntptime::NTPTime &time;
@@ -1173,38 +1193,54 @@ struct MQTTPublisher {
         return true;
     }
 
-    // only call once a second!
-    ICACHE_FLASH_ATTR void update(bool sec_pass) {
+    enum StateMajor {
+        STM_FREQ        = 0,
+        STM_TIMER       = 1,
+        STM_NEXT_CLIENT = 2
+    };
+
+    ICACHE_FLASH_ATTR void update() {
         client.loop();
 
-        if (!sec_pass) return;
-
-        auto sec = second(time.localTime());
-
-        // mqtt only updates between :50 and :58
-        if (sec < 50) return;
-        if (sec > 58) return;
-
+        // TODO: Try to reconnect in intervals. Don't block the main loop too
+        // often
         if (!reconnect()) return;
 
-        // process one client per loop call (i.e. per second)
-        for (uint8_t addr = 1; addr < MAX_HR_COUNT; ++addr) {
-            auto chngs = states[addr];
-            if (!chngs) continue;
-            states[addr] = 0;
-
-            if (chngs & CHANGE_FREQUENT) {
-                DBG("(MF %u)", addr);
-                publish_frequent(addr);
-            }
-
-            if (chngs & CHANGE_TIMER_MASK) {
-                DBG("(MT %u)", addr);
-                publish_timers(addr, (chngs >> 1) & 0x0FF);
-            }
-
-            break;
+        if (!states[addr]) {
+            // no changes for this client
+            // switch to next one and check here next loop
+            next_client();
+            return;
         }
+
+        switch (state_maj) {
+        case STM_FREQ:
+            publish_frequent();
+            break;
+        case STM_TIMER:
+            publish_timers();
+            break;
+        default:
+            next_client();
+        }
+    }
+
+    ICACHE_FLASH_ATTR void next_client() {
+        // process one client per loop call (i.e. per second)
+        ++addr;
+
+        // wraparound
+        if (addr >= MAX_HR_COUNT) addr = 0;
+
+        // reset the major/minor state indicators
+        state_maj = STM_FREQ;
+        state_min = 0;
+    }
+
+    ICACHE_FLASH_ATTR void next_major() {
+        state_min = 0;
+        ++state_maj;
+        if (state_maj >= STM_NEXT_CLIENT) next_client();
     }
 
     template <typename T>
@@ -1235,12 +1271,13 @@ struct MQTTPublisher {
 
     template <typename T>
     ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, const T &val,
-                                             bool do_publish) const
+                                             bool is_published,
+                                             bool is_subscribed) const
     {
         String sv(val);
         String path = p.compose();
-        if (do_publish) client.publish(path.c_str(), sv.c_str());
-        client.subscribe(path.c_str());
+        if (!is_published)  client.publish(path.c_str(), sv.c_str());
+        if (!is_subscribed) client.subscribe(path.c_str());
     }
 
     template<typename T>
@@ -1250,7 +1287,18 @@ struct MQTTPublisher {
         client.publish(path.c_str(), sv.c_str());
     }
 
-    ICACHE_FLASH_ATTR void publish_frequent(uint8_t addr) const {
+    ICACHE_FLASH_ATTR void publish_frequent() {
+        if ((states[addr] & CHANGE_FREQUENT) == 0) {
+            // no changes. advance...
+            next_major();
+            return;
+        }
+
+#ifdef VERBOSE
+        // TOO VERBOSE
+        DBG("(MF %u)", addr);
+#endif
+
         auto *hr = master.model[addr];
         if (!hr) {
             ERR("Change on invalid client");
@@ -1259,68 +1307,122 @@ struct MQTTPublisher {
 
         Path p{addr, mqtt::INVALID_TOPIC};
 
-        p.topic = mqtt::MODE;
-        publish_subscribe(p, hr->auto_mode);
-
+        switch (state_min) {
+        case 0:
+            p.topic = mqtt::MODE;
+            publish_subscribe(p, hr->auto_mode);
+            ++state_min;
+            break;
+        case 1:
+            p.topic = mqtt::LOCK;
+            publish_subscribe(p, hr->menu_locked);
+            ++state_min;
+            break;
+        case 2:
+            p.topic = mqtt::WND;
+            publish(p, hr->mode_window);
+            ++state_min;
+            break;
+        case 3:
+            // TODO: this is in 0.01 of C, change it to float?
+            p.topic = mqtt::AVG_TMP;
+            publish(p, hr->temp_avg);
+            ++state_min;
+            break;
+        case 4:
+            // TODO: Battery is in 0.01 of V, change it to float?
+            p.topic = mqtt::BAT;
+            publish(p, hr->bat_avg);
+            ++state_min;
+            break;
+        case 5:
+            // TODO: Fix formatting for temp_wanted - float?
+            // temp_wanted is in 0.5 C
+            p.topic = mqtt::REQ_TMP;
+            publish_subscribe(p, hr->temp_wanted);
+            ++state_min;
+            break;
+        case 6:
+            p.topic = mqtt::VALVE_WTD;
+            publish(p, hr->cur_valve_wtd);
+            ++state_min;
+            break;
         // TODO: test_auto
         // TODO: last_seen
+        case 7:
+            p.topic = mqtt::ERR;
+            publish(p, hr->ctl_err);
+            // fallthrough!
+        case 8:
+            // clear out the change bit
+            states[addr] &= ~CHANGE_FREQUENT;
 
-        p.topic = mqtt::LOCK;
-        publish_subscribe(p, hr->menu_locked);
-
-        p.topic = mqtt::WND;
-        publish(p, hr->mode_window);
-
-        // TODO: this is in 0.01 of C, change it to float?
-        p.topic = mqtt::AVG_TMP;
-        publish(p, hr->temp_avg);
-
-        // TODO: Battery is in 0.01 of V, change it to float?
-        p.topic = mqtt::BAT;
-        publish(p, hr->bat_avg);
-
-        // TODO: Fix formatting for temp_wanted - float?
-        // temp_wanted is in 0.5 C
-        p.topic = mqtt::REQ_TMP;
-        publish_subscribe(p, hr->temp_wanted);
-
-        p.topic = mqtt::VALVE_WTD;
-        publish(p, hr->cur_valve_wtd);
-
-        p.topic = mqtt::ERR;
-        publish(p, hr->ctl_err);
+            next_major(); // moves to next major state
+            break;
+        }
     }
 
-    ICACHE_FLASH_ATTR void publish_timers(uint8_t addr, uint8_t mask) const {
+    ICACHE_FLASH_ATTR void publish_timers() {
         auto *hr = master.model[addr];
         if (!hr) {
             ERR("Change on invalid client");
             return;
         }
 
-        // only publish timers that have bit set in mask
-        Path p{addr, mqtt::TIMER};
-
-        for (uint8_t d = 0; d < 8; ++d) {
-            if (!((1 << d) & mask)) continue;
-            // change happened to this day
-            for (uint8_t sl = 0; sl < TIMER_SLOTS_PER_DAY; ++sl) {
-                p.day = d;
-                p.slot = sl;
-
-                // TODO: Rework this to implicit conversion system (integrated CachedValue handling)
-                bool is_synced = hr->timers[d][sl].is_synced();
-
-                uint8_t h, m, mode;
-                decode_timer(hr->timers[d][sl].get_requested(), h, m, mode);
-
-                p.timer_topic = mqtt::TIMER_MODE;
-                publish_subscribe(p, mode, is_synced);
-
-                p.timer_topic = mqtt::TIMER_TIME;
-                publish_subscribe(p, h * 60 + m, is_synced);
-            }
+        if ((states[addr] & CHANGE_TIMER_MASK) == 0) {
+            next_major();
+            return;
         }
+
+        // the minor state encodes day/slot
+        uint8_t day  = state_min >> 3;
+        uint8_t slot = state_min  & 0x7;
+        ++state_min;
+
+        uint8_t mask = change_get_timer_mask(states[addr]);
+
+        // if we overshot the day counter, we switch to next
+        // major slot (or client in this case)
+        if (day >= 8) {
+            next_major();
+            return;
+        }
+
+        // the current day/slot is not changed? visit the next next time
+        if (!((1 << day) & mask)) {
+            return;
+        }
+
+        // clear out the mask bit for the particular day if the last slot is hit
+        if (slot == 7) states[addr] &= ~timer_day_2_change[day];
+
+#ifdef VERBOSE
+        // TOO VERBOSE
+        DBG("(MT %u %u %u)", addr, day, slot);
+#endif
+        // only publish timers that have bit set in mask
+        Path p{addr, mqtt::TIMER, mqtt::TIMER_NONE, day, slot};
+
+        // TODO: Rework this to implicit conversion system
+        //  - integrated CachedValue handling.
+        auto &timer = hr->timers[day][slot];
+        bool is_published  = timer.published();
+        bool is_subscribed = timer.subscribed();
+
+        // only publish if not published
+        if (is_published) return;
+
+        uint8_t h, m, mode;
+        decode_timer(timer.get_remote(), h, m, mode);
+
+        p.timer_topic = mqtt::TIMER_MODE;
+        publish_subscribe(p, mode, is_published, is_subscribed);
+
+        p.timer_topic = mqtt::TIMER_TIME;
+        publish_subscribe(p, h * 60 + m, is_published, is_subscribed);
+
+        timer.published()  = true;
+        timer.subscribed() = true;
     }
 
     ICACHE_FLASH_ATTR void callback(char *topic, byte *payload,
@@ -1353,11 +1455,14 @@ struct MQTTPublisher {
             case mqtt::TIMER_TIME: hr->set_timer_time(p.day, p.slot, val); break;
             default: ERR("Non-settable timer topic change requested: %s", topic);
             }
+            break;
         }
         default: ERR("Non-settable topic change requested: %s", topic);
         }
 
+#ifdef VERBOSE
         DBG("(MQC %d %d)", p.addr, p.topic);
+#endif
     }
 
     Config &config;
@@ -1367,6 +1472,11 @@ struct MQTTPublisher {
     /// seriously, const correctness anyone? PubSubClient does not have single const method...
     mutable PubSubClient client;
     uint32_t states[MAX_HR_COUNT];
+
+    // Publisher state machine
+    uint8_t addr = 0;
+    uint8_t state_maj = 0; // state category (FREQUENT, CALENDAR)
+    uint8_t state_min = 0; // state detail (depends on major state)
 };
 
 } // namespace mqtt
@@ -1447,9 +1557,12 @@ void loop(void) {
     bool changed_time = time.update();
 
     bool __attribute__((unused)) sec_pass = master.update(changed_time);
-        // second passed
+
+    // sec_pass = second passed (once every second)
+
 #ifdef MQTT
-    publisher.update(sec_pass);
+    // only update mqtt if we have a time to do so, as controlled by master
+    if (master.is_idle()) publisher.update();
 #endif
 
     // feed the watchdog...

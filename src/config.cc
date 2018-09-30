@@ -56,14 +56,11 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 {
     SPIFFS.begin();
     File file = SPIFFS.open(filename, "w");
-    if (!file)
-    {
+    if (!file) {
         ERR("Config file open failed");
         SPIFFS.end();
         return false;
-    }
-    else
-    {
+    } else {
         char *rfmPass = get_rfm_pass_value();
 
         DBG("writing to file: %s", filename);
@@ -120,8 +117,11 @@ bool ICACHE_FLASH_ATTR Config::load(const char *filename)
 {
     const char *JSON_STRING;
     String json;
+
     DBG("Reading config");
+
     SPIFFS.begin();
+
     File file = SPIFFS.open(filename, "r");
     if (file)
     {
