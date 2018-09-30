@@ -116,13 +116,19 @@ ICACHE_FLASH_ATTR static TimerTopic parse_timer_topic(const char *top) {
     return INVALID_TIMER_TOPIC;
 }
 
-//
+// mqtt path parser/composer
 struct Path {
     static const char SEPARATOR = '/';
-    static const constexpr char *prefix = "hr20";
+    static const char *prefix;
+
+    // static method that overrides prefix
+    ICACHE_FLASH_ATTR static void begin(const char *pfx) {
+        prefix = pfx;
+    }
 
     ICACHE_FLASH_ATTR Path() {}
-    ICACHE_FLASH_ATTR Path(uint8_t addr, Topic t, TimerTopic st = TIMER_NONE, uint8_t day = 0, uint8_t slot = 0)
+    ICACHE_FLASH_ATTR Path(uint8_t addr, Topic t, TimerTopic st = TIMER_NONE,
+                           uint8_t day = 0, uint8_t slot = 0)
         : addr(addr), day(day), slot(slot), topic(t), timer_topic(st)
     {}
 

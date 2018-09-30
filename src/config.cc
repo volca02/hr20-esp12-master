@@ -1,58 +1,57 @@
 #include "config.h"
+#include "util.h"
 
-void ICACHE_FLASH_ATTR Config::begin()
+bool ICACHE_FLASH_ATTR Config::begin(const char *fname)
 {
 #ifdef MQTT
     sprintf(mqtt_client_id, "%s%08x", mqtt_client_id_prefix, ESP.getChipId());
 #endif
+    return load(fname);
 }
-bool ICACHE_FLASH_ATTR Config::jsoneq(const char *json, jsmntok_t *tok, const char *s)
+
+bool ICACHE_FLASH_ATTR Config::jsoneq(const char *json, jsmntok_t *tok,
+                                      const char *s)
 {
-    if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
-        strncmp(json + tok->start, s, tok->end - tok->start) == 0)
-    {
-        return true;
-    }
-    return false;
+  if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
+      strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+    return true;
+  }
+  return false;
 }
-uint8_t ICACHE_FLASH_ATTR Config::hex2int(char ch)
-{
-    if (ch >= '0' && ch <= '9')
-        return ch - '0';
-    if (ch >= 'A' && ch <= 'F')
-        return ch - 'A' + 10;
-    if (ch >= 'a' && ch <= 'f')
-        return ch - 'a' + 10;
-    return -1;
-}
-char *ICACHE_FLASH_ATTR Config::get_rfm_pass_value()
-{
+
+char *ICACHE_FLASH_ATTR Config::get_rfm_pass_value() {
     for (int i = 0; i < 8; i++)
     {
-        sprintf(rfmPassValue + 2 * i, "%02X", rfm_pass[i]);
+        rfm_pass_hex[2 * i    ] = int2hex(rfm_pass[i] >>  4);
+        rfm_pass_hex[2 * i + 1] = int2hex(rfm_pass[i] & 0xF);
     }
-    return rfmPassValue;
+
+    // zero terminate the value.
+    rfm_pass_hex[16] = 0;
+    return rfm_pass_hex;
 }
-bool ICACHE_FLASH_ATTR Config::set_rfm_pass(const char *rfmPass)
-{
+
+bool ICACHE_FLASH_ATTR Config::set_rfm_pass(const char *rfmPass) {
     uint8_t tmp[8];
-    for (int j = 0; j < 16; j = j + 2)
+
+    for (int j = 0; j < 8; ++j)
     {
-        uint8_t x0 = hex2int(rfmPass[j]);
-        uint8_t x1 = hex2int(rfmPass[j + 1]);
-        if (x0 >= 0 && x1 >= 0)
-        {
-            tmp[j / 2] = x0 * 0x10 + x1;
-        }
-        else
-        {
+        int8_t x0 = hex2int(rfmPass[j * 2    ]);
+        int8_t x1 = hex2int(rfmPass[j * 2 + 1]);
+
+        if ((x0 < 0) || (x1 < 0)) {
+            // happens even for short passwords
             ERR("Invalid char in RFM password");
             return false;
         }
+
+        tmp[j] = (x0 << 4) | x1;
     }
-    memcpy(rfm_pass, tmp, 8 * sizeof(uint8_t));
+
+    memcpy(rfm_pass, tmp, sizeof(rfm_pass));
     return true;
 }
+
 bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 {
     SPIFFS.begin();
@@ -65,6 +64,8 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
     }
     else
     {
+        char *rfmPass = get_rfm_pass_value();
+
         DBG("writing to file: %s", filename);
         file.printf("{"
 #ifdef NTP_CLIENT
@@ -85,7 +86,7 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 #ifdef MQTT
                     mqtt_server, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic_prefix,
 #endif
-                    get_rfm_pass_value());
+                    rfmPass);
 
         DBG("Configuration written: {"
 #ifdef NTP_CLIENT
@@ -106,7 +107,7 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 #ifdef MQTT
             mqtt_server, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic_prefix,
 #endif
-            get_rfm_pass_value());
+            rfmPass);
 
         file.close();
         SPIFFS.end();

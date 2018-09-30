@@ -28,6 +28,7 @@
 // prologue (0xaa, 0xaa, 0x2d, 0xd4 that gets eaten by the radio as sync-word)
 // that does not apply to OpenHR20 since it shares send/recv buffer in one.
 using RcvPacket = ShortQ<76>;
+
 // sent packet is shorter, as we hold cmac in an isolated place
 using SndPacket = PacketQ::Packet;
 
@@ -54,8 +55,6 @@ constexpr const uint8_t MAX_HR_COUNT = 29;
 #define c2temp(c) (c*2)
 constexpr const uint8_t TEMP_MIN = c2temp(5);
 constexpr const uint8_t TEMP_MAX = c2temp(30);
-
-Config config;
 
 /// Delays re-requests a number of skips. Used to delay re-requests/re-submits of values
 template<int8_t RETRY_SKIPS>
@@ -1032,14 +1031,17 @@ protected:
 
 /// Implements the state machine for packet sending/retrieval and radio control.
 struct HR20Master {
-    ICACHE_FLASH_ATTR HR20Master(ntptime::NTPTime &tm, Config &config)
-        : time(tm),
-          crypto{config.rfm_pass, time},
+    ICACHE_FLASH_ATTR HR20Master(Config &config, ntptime::NTPTime &tm)
+        : config(config),
+          time(tm),
+          crypto{time},
           queue{crypto, RESEND_TIME},
           proto{model, time, crypto, queue}
     {}
 
+    // has to be called after config.begin()!
     void ICACHE_FLASH_ATTR begin() {
+        crypto.begin(config.rfm_pass);
         radio.begin();
     }
 
@@ -1051,7 +1053,7 @@ struct HR20Master {
 
         // TODO: if it's 00 or 30, we send sync
         if (sec_pass) {
-            DBGI("\r[%d]", crypto.rtc.ss);
+            DBGI("\r[:%d]", crypto.rtc.ss);
             time_t curtime = time.localTime();
             proto.update(curtime, changed_time);
         }
@@ -1120,6 +1122,7 @@ struct HR20Master {
     }
 
     // RTC with NTP synchronization
+    Config &config;
     ntptime::NTPTime &time;
     crypto::Crypto crypto;
     RFM12B radio;
@@ -1138,11 +1141,13 @@ namespace mqtt {
 
 struct MQTTPublisher {
     // TODO: Make this configurable!
-    ICACHE_FLASH_ATTR MQTTPublisher(ntptime::NTPTime &time, HR20Master &master)
-        : time(time), master(master), wifiClient(), client(wifiClient)
+    ICACHE_FLASH_ATTR MQTTPublisher(Config &config, ntptime::NTPTime &time,
+                                    HR20Master &master)
+        : config(config), time(time), master(master), wifiClient(),
+          client(wifiClient)
     {
-        for (uint8_t i = 0; i < MAX_HR_COUNT; ++i)
-            states[i] = 0;
+      for (uint8_t i = 0; i < MAX_HR_COUNT; ++i)
+        states[i] = 0;
     }
 
     ICACHE_FLASH_ATTR void begin() {
@@ -1355,6 +1360,7 @@ struct MQTTPublisher {
         DBG("(MQC %d %d)", p.addr, p.topic);
     }
 
+    Config &config;
     ntptime::NTPTime &time;
     HR20Master &master;
     WiFiClient wifiClient;
@@ -1366,9 +1372,11 @@ struct MQTTPublisher {
 } // namespace mqtt
 #endif
 
+Config config;
+
 ntptime::NTPTime time;
 
-HR20Master master{time,config};
+HR20Master master{config, time};
 int last_int = 1;
 
 #ifdef WEB_SERVER
@@ -1376,16 +1384,18 @@ ESP8266WebServer server(80);
 #endif
 
 #ifdef MQTT
-mqtt::MQTTPublisher publisher(time, master);
+mqtt::MQTTPublisher publisher(config, time, master);
 #endif
 
 
 void setup(void) {
-
     Serial.begin(38400);
-    //must be before wdtEnable
-    config.begin();
-    setupWifi(config);
+
+    // must be before wdtEnable
+    bool loaded = config.begin("config.json");
+
+    // this may change the config so it has to be at the top
+    setupWifi(config, loaded);
 
     // set watchdog to 2 seconds.
     ESP.wdtEnable(2000);
@@ -1396,8 +1406,9 @@ void setup(void) {
     // TODO: this is perhaps useful for something (wifi, ntp) but not sure
     randomSeed(micros());
 
-
 #ifdef MQTT
+    // attaches the path's prefix to the setup value
+    mqtt::Path::begin(config.mqtt_topic_prefix);
     publisher.begin();
 #endif
 

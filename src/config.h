@@ -11,9 +11,11 @@
 struct Config
 {
     uint8_t rfm_pass[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
+
 #ifdef NTP_CLIENT
     char ntp_server[41] = "2.europe.pool.ntp.org";
 #endif
+
 #ifdef MQTT
     char mqtt_client_id[20];
     char mqtt_server[41] = "";
@@ -28,12 +30,13 @@ struct Config
 
     char *ICACHE_FLASH_ATTR get_rfm_pass_value();
     bool ICACHE_FLASH_ATTR set_rfm_pass(const char *pass);
-    void ICACHE_FLASH_ATTR begin();
 
-  private:
-    char rfmPassValue[17];
+    // loads the config
+    bool ICACHE_FLASH_ATTR begin(const char *filename);
+
+    char rfm_pass_hex[17];
+private:
     bool ICACHE_FLASH_ATTR jsoneq(const char *json, jsmntok_t *tok, const char *s);
-    uint8_t ICACHE_FLASH_ATTR hex2int(char ch);
 
 #ifdef MQTT
     const char *mqtt_client_id_prefix = "OpenHR20_";

@@ -22,8 +22,11 @@ static void ICACHE_FLASH_ATTR roll(const uint8_t *src, uint8_t *dst) {
     // omits that part, and so will we
 }
 
-ICACHE_FLASH_ATTR Crypto::Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time)
+ICACHE_FLASH_ATTR Crypto::Crypto(ntptime::NTPTime &time)
     : time(time)
+{}
+
+void ICACHE_FLASH_ATTR Crypto::begin(const uint8_t *rfm_pass)
 {
     // join pre-defined rfm_pass key + and hardcoded Km_upper
     uint8_t k_m[16];

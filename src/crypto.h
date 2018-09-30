@@ -170,8 +170,11 @@ struct Crypto {
     time_t lastTime;
     RTC rtc;
 
+    // constructor. begin() has to be called before this class is usable!
+    Crypto(ntptime::NTPTime &time);
+
     // initializes Kmac, Kenc, K1 and K2
-    Crypto(const uint8_t *rfm_pass, ntptime::NTPTime &time);
+    void begin(const uint8_t *rfm_pass);
 
     // updates the rtc if needed. Returns true if second passed
     bool update();
