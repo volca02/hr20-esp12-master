@@ -179,10 +179,15 @@ struct CachedValue {
         return flags[SUBSCRIBED];
     }
 
-protected:
     ICACHE_FLASH_ATTR Flags::accessor remote_valid() {
         return flags[REMOTE_VALID];
     };
+
+    Flags::const_accessor remote_valid() const {
+        return flags[REMOTE_VALID];
+    }
+
+protected:
 
     Flags flags;
     RequestDelay<REREAD_CYCLES> reread_ctr;
@@ -197,7 +202,8 @@ struct SyncedValue : public CachedValue<T> {
         return (!is_synced()) && (resend_ctr.should_retry());
     }
 
-    T ICACHE_FLASH_ATTR get_requested() const { return requested; }
+    T& ICACHE_FLASH_ATTR get_requested() { return requested; }
+    const T& ICACHE_FLASH_ATTR get_requested() const { return requested; }
 
     void ICACHE_FLASH_ATTR set_requested(T val) {
         requested = val;
@@ -250,8 +256,71 @@ constexpr const uint8_t TIMER_SLOTS_PER_DAY = 8;
 // timer has 7 slots for days and 1 slot extra for repeated everyday mode
 constexpr const uint8_t TIMER_DAYS = 8;
 
-using TimerSlot = SyncedValue<uint16_t>;
+struct Timer {
+    Timer(uint16_t val = 0) : timer(val) {}
 
+    uint8_t hour() const {
+        return time() / 60;
+    }
+
+    uint8_t min() const {
+        return time() % 60;
+    }
+
+    uint16_t time() const {
+        return (timer & 0x0fff);
+    }
+
+    uint8_t mode() const {
+        return timer >> 12;
+    }
+
+    void set_hour(uint8_t shour) {
+        set(mode(), shour, min());
+    }
+
+    void set_min(uint8_t smin) {
+        set(mode(), hour(), smin);
+    }
+
+    void set_mode(uint8_t smode) {
+        set(smode, hour(), min());
+    }
+
+    void set_time(uint8_t shour, uint8_t smin) {
+        set(mode(), shour, smin);
+    }
+
+    void set_time(uint16_t time) {
+        set(mode(), time / 60, time % 60);
+    }
+
+    void set(uint8_t shour, uint8_t smin, uint8_t smode) {
+        // some mandatory fixes to stop producing crap timers
+        shour = shour % 24; // wraparound in one day
+
+        if (smin >= 60) // no good way to handle this...
+            smin = 0;
+
+        timer = smode << 12 | (shour * 60 + smin);
+    }
+
+    uint16_t raw() const { return timer; }
+
+    uint16_t operator=(uint16_t val) {
+        return timer = val;
+    }
+
+    bool operator==(const Timer &other) const { return timer == other.timer; }
+    bool operator!=(const Timer &other) const { return timer != other.timer; }
+
+protected:
+    uint16_t timer;
+};
+
+using TimerSlot = SyncedValue<Timer>;
+
+/*
 uint16_t encode_timer(uint8_t hr, uint8_t min, uint8_t mode) {
     return (uint16_t(mode) << 12) | (uint16_t(hr)*60 + min);
 }
@@ -261,7 +330,7 @@ void decode_timer(uint16_t timer, uint8_t &hr, uint8_t &min, uint8_t &mode) {
     min  = (timer & 0x0fff) % 60;
     mode = timer >> 12;
 }
-
+*/
 // categorizes the changes in HR20 model
 enum ChangeCategory {
     CHANGE_FREQUENT = 1,
@@ -287,7 +356,7 @@ ChangeCategory timer_day_2_change[8] = {
     CHANGE_TIMER_7
 };
 
-uint8_t change_get_timer_mask(uint8_t change) {
+uint8_t change_get_timer_mask(uint16_t change) {
     return (change & CHANGE_TIMER_MASK) >> 1;
 }
 
@@ -337,30 +406,23 @@ struct HR20 {
         if (day >= TIMER_DAYS) return;
         if (slot >= TIMER_SLOTS_PER_DAY) return;
 
-        uint8_t h, m, mode;
-        decode_timer(timers[day][slot].get_requested(), h, m, mode);
-
-        // timer mode is 4 bit
-        mode = atoi(val) & 0x0F;
-
-        timers[day][slot].set_requested(encode_timer(h, m, mode));
+        timers[day][slot].get_requested().set_mode(atoi(val) & 0x0F);
     }
 
     ICACHE_FLASH_ATTR void set_timer_time(uint8_t day, uint8_t slot, const char *val) {
         if (day >= TIMER_DAYS) return;
         if (slot >= TIMER_SLOTS_PER_DAY) return;
 
-        uint8_t h, m, mode;
-        decode_timer(timers[day][slot].get_requested(), h, m, mode);
+        uint8_t h, m;
 
         // time is expected in minutes of the day
+        // might implement a better parser later
         uint16_t mins = atoi(val);
         h = mins / 60;
         m = mins % 60;
 
-        timers[day][slot].set_requested(encode_timer(h, m, mode));
+        timers[day][slot].get_requested().set_time(h, m);
     }
-
 };
 
 /// Accumulates non-synced client addrs for sync force flags/addrs
@@ -975,8 +1037,8 @@ protected:
 
         p->push('W');
         p->push(dow << 4 | slot);
-        p->push(timer.get_requested() >> 8);
-        p->push(timer.get_requested() && 0xFF);
+        p->push(timer.get_requested().raw() >> 8);
+        p->push(timer.get_requested().raw() && 0xFF);
     }
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
@@ -1185,6 +1247,9 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR bool reconnect() {
         if (!client.connected()) {
             DBG("(MQTT CONN)");
+            // TODO: only try this once a few seconds or so
+            // just store last time we did it and retry
+            // if we get over retry time
             if (!client.connect(config.mqtt_client_id)) {
                 ERR("MQTT conn. err.");
                 return false;
@@ -1247,7 +1312,7 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, CachedValue<T> &val) const
     {
         String path = p.compose();
-        if (!val.published()) {
+        if (!val.published() && val.remote_valid()) {
             String sv(val.get_remote());
             client.publish(path.c_str(), sv.c_str());
             val.published() = true;
@@ -1258,6 +1323,36 @@ struct MQTTPublisher {
             val.subscribed() = true;
         }
     }
+
+    // timer publishes and subscribes two topics, so we overload for it...
+    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, CachedValue<Timer> &val) const
+    {
+        // clone paths and set the two possile endings for them
+        Path mode_path{p};
+        Path time_path{p};
+
+        mode_path.timer_topic = mqtt::TIMER_MODE;
+        time_path.timer_topic = mqtt::TIMER_TIME;
+
+        // format the paths to strings
+        String mode_p_str = mode_path.compose();
+        String time_p_str = time_path.compose();
+
+        if (!val.published() && val.remote_valid()) {
+            String smode(val.get_remote().mode());
+            String stime(val.get_remote().time());
+            client.publish(mode_p_str.c_str(), smode.c_str());
+            client.publish(time_p_str.c_str(), stime.c_str());
+            val.published() = true;
+        }
+
+        if (!val.subscribed()) {
+            client.subscribe(mode_p_str.c_str());
+            client.subscribe(time_p_str.c_str());
+            val.subscribed() = true;
+        }
+    }
+
 
     template<typename T>
     ICACHE_FLASH_ATTR void publish(const Path &p, CachedValue<T> &val) const {
@@ -1352,11 +1447,15 @@ struct MQTTPublisher {
         case 7:
             p.topic = mqtt::ERR;
             publish(p, hr->ctl_err);
-            // fallthrough!
+            ++state_min;
+            break;
         case 8:
+            p.topic = mqtt::LAST_SEEN;
+            publish(p, hr->last_contact);
+            // fallthrough!
+        case 9:
             // clear out the change bit
             states[addr] &= ~CHANGE_FREQUENT;
-
             next_major(); // moves to next major state
             break;
         }
@@ -1388,7 +1487,8 @@ struct MQTTPublisher {
             return;
         }
 
-        // the current day/slot is not changed? visit the next next time
+        // the current day/slot is not changed?
+        // visit the next day/slot next time
         if (!((1 << day) & mask)) {
             return;
         }
@@ -1404,25 +1504,7 @@ struct MQTTPublisher {
         Path p{addr, mqtt::TIMER, mqtt::TIMER_NONE, day, slot};
 
         // TODO: Rework this to implicit conversion system
-        //  - integrated CachedValue handling.
-        auto &timer = hr->timers[day][slot];
-        bool is_published  = timer.published();
-        bool is_subscribed = timer.subscribed();
-
-        // only publish if not published
-        if (is_published) return;
-
-        uint8_t h, m, mode;
-        decode_timer(timer.get_remote(), h, m, mode);
-
-        p.timer_topic = mqtt::TIMER_MODE;
-        publish_subscribe(p, mode, is_published, is_subscribed);
-
-        p.timer_topic = mqtt::TIMER_TIME;
-        publish_subscribe(p, h * 60 + m, is_published, is_subscribed);
-
-        timer.published()  = true;
-        timer.subscribed() = true;
+        publish_subscribe(p, hr->timers[day][slot]);
     }
 
     ICACHE_FLASH_ATTR void callback(char *topic, byte *payload,
