@@ -14,6 +14,7 @@ enum Topic {
     REQ_TMP,
     VALVE_WTD,
     WND,
+    LAST_SEEN,
     TIMER,
     INVALID_TOPIC = 255
 };
@@ -33,6 +34,7 @@ static const char *S_MODE      = "mode";
 static const char *S_REQ_TMP   = "requested_temp"; // 14
 static const char *S_VALVE_WTD = "valve_wanted";
 static const char *S_WND       = "window";
+static const char *S_LAST_SEEN = "last_seen";
 
 static const char *S_TIMER     = "timer";
 static unsigned    S_TIMER_LEN = 5;
@@ -51,6 +53,7 @@ ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     case REQ_TMP:   return S_REQ_TMP;
     case VALVE_WTD: return S_VALVE_WTD;
     case WND:       return S_WND;
+    case LAST_SEEN: return S_LAST_SEEN;
     case TIMER:     return S_TIMER;
     default:
         return "invalid!";
@@ -79,6 +82,7 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         return INVALID_TOPIC;
     case 'l':
         if (strcmp(top, S_LOCK) == 0) return LOCK;
+        if (strcmp(top, S_LAST_SEEN) == 0) return LAST_SEEN;
         return INVALID_TOPIC;
     case 'm':
         if (strcmp(top, S_MODE) == 0) return MODE;
