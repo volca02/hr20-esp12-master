@@ -232,9 +232,10 @@ struct SyncedValue : public CachedValue<T, CvT> {
     // override for synced values - confirmations reset req_time
     void ICACHE_FLASH_ATTR set_remote(T val) {
         // set over a known prev. value should reset set requests
-        bool diff = this->remote != val && this->remote_valid();
+        bool diff = (this->remote != val) && this->remote_valid();
 
         CachedValue<T, CvT>::set_remote(val);
+
         // if none was requested in the meantime, also set requested
         if (this->resend_ctr.is_paused()) {
             this->requested = this->remote;
@@ -255,7 +256,9 @@ struct SyncedValue : public CachedValue<T, CvT> {
     }
 
     ICACHE_FLASH_ATTR void set_requested_from_str(const String &val) {
-        set_requested(Converter::from_str(val));
+        T cvtd;
+        if (Converter::from_str(val, cvtd))
+            set_requested(cvtd);
     }
 
 private:
@@ -426,15 +429,9 @@ struct HR20 {
         if (day >= TIMER_DAYS) return;
         if (slot >= TIMER_SLOTS_PER_DAY) return;
 
-        uint8_t h, m;
-
-        // time is expected in minutes of the day
-        // might implement a better parser later
-        uint16_t mins = atoi(val);
-        h = mins / 60;
-        m = mins % 60;
-
-        timers[day][slot].get_requested().set_time(h, m);
+        uint16_t cvtd;
+        if (cvt::TimeHHMM::from_str(val, cvtd))
+            timers[day][slot].get_requested().set_time(cvtd);
     }
 };
 
@@ -1352,10 +1349,8 @@ struct MQTTPublisher {
         String time_p_str = time_path.compose();
 
         if (!val.published() && val.remote_valid()) {
-            String smode(val.get_remote().mode());
-            String stime(val.get_remote().time());
-            client.publish(mode_p_str.c_str(), smode.c_str());
-            client.publish(time_p_str.c_str(), stime.c_str());
+            client.publish(mode_p_str.c_str(), cvt::Simple::to_str(val.get_remote().mode()).c_str());
+            client.publish(time_p_str.c_str(), cvt::TimeHHMM::to_str(val.get_remote().time()).c_str());
             val.published() = true;
         }
 
@@ -1537,7 +1532,6 @@ struct MQTTPublisher {
             return;
         }
 
-#warning the temp_wanted setting is accurate to 1 degree now. not ideal!
         const char *val = reinterpret_cast<const char*>(payload);
         switch (p.topic) {
         case mqtt::REQ_TMP: hr->temp_wanted.set_requested_from_str(val); break;
