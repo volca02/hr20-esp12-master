@@ -16,6 +16,7 @@
 #include "wifi.h"
 #include "ntptime.h"
 #include "debug.h"
+#include "converters.h"
 
 // Sync count after RTC update.
 // 255 is OpenHR20 default. (122 minutes after time sync)
@@ -136,8 +137,10 @@ private:
 };
 
 // read-only value that gets reported by HR20 (not set back, not changeable)
-template<typename T>
+template<typename T, typename CvT = cvt::Simple>
 struct CachedValue {
+    using Converter = CvT;
+
     // bitfield flags. internal rep to save space instead of bools...
     enum ValueFlags {
         REMOTE_VALID = 1,
@@ -179,12 +182,16 @@ struct CachedValue {
         return flags[SUBSCRIBED];
     }
 
-    ICACHE_FLASH_ATTR Flags::accessor remote_valid() {
+    Flags::accessor remote_valid() {
         return flags[REMOTE_VALID];
     };
 
     Flags::const_accessor remote_valid() const {
         return flags[REMOTE_VALID];
+    }
+
+    ICACHE_FLASH_ATTR String to_str() const {
+        return Converter::to_str(remote);
     }
 
 protected:
@@ -196,8 +203,10 @@ protected:
 
 // implements a pair of values - local/remote, that is used to detect
 // changes have to be written through to client.
-template<typename T>
-struct SyncedValue : public CachedValue<T> {
+template<typename T, typename CvT = cvt::Simple>
+struct SyncedValue : public CachedValue<T, CvT> {
+    using Converter = CvT;
+
     bool ICACHE_FLASH_ATTR needs_write() {
         return (!is_synced()) && (resend_ctr.should_retry());
     }
@@ -225,7 +234,7 @@ struct SyncedValue : public CachedValue<T> {
         // set over a known prev. value should reset set requests
         bool diff = this->remote != val && this->remote_valid();
 
-        CachedValue<T>::set_remote(val);
+        CachedValue<T, CvT>::set_remote(val);
         // if none was requested in the meantime, also set requested
         if (this->resend_ctr.is_paused()) {
             this->requested = this->remote;
@@ -243,6 +252,10 @@ struct SyncedValue : public CachedValue<T> {
     // returns true for values that don't have newer change request
     bool ICACHE_FLASH_ATTR is_synced() const {
         return this->remote == this->requested;
+    }
+
+    ICACHE_FLASH_ATTR void set_requested_from_str(const String &val) {
+        set_requested(Converter::from_str(val));
     }
 
 private:
@@ -370,7 +383,7 @@ struct HR20 {
     // but only after we verify (read_time != 0) that we know them to differ
 
     // temperature wanted - update A[XX] (0.5 degres accuracy)
-    SyncedValue<uint8_t>  temp_wanted;
+    SyncedValue<uint8_t, cvt::TempHalfC>  temp_wanted;
     // automatic/manual temperature selection - M[01]/M[00]
     SyncedValue<bool>     auto_mode;
     // false unlocked, true locked - L[01]/L[00]
@@ -393,10 +406,10 @@ struct HR20 {
     CachedValue<bool>     test_auto;
     // true means open window
     CachedValue<bool>     mode_window;
-    // average temperature
-    CachedValue<uint16_t> temp_avg;
+    // average temperature [/0.01]C
+    CachedValue<uint16_t, cvt::Temp001C> temp_avg;
     // average battery - [/0.001]V
-    CachedValue<uint16_t> bat_avg;
+    CachedValue<uint16_t, cvt::Voltage0001V> bat_avg;
     // desired valve position
     CachedValue<uint8_t>  cur_valve_wtd;
     // controller error
@@ -972,8 +985,8 @@ protected:
         }
     }
 
-    void ICACHE_FLASH_ATTR send_set_temp(uint8_t addr,
-                                         SyncedValue<uint8_t> &temp_wanted)
+    void ICACHE_FLASH_ATTR send_set_temp(
+            uint8_t addr, SyncedValue<uint8_t, cvt::TempHalfC> &temp_wanted)
     {
 #ifdef VERBOSE
         DBG("   * TEMP %u", addr);
@@ -1308,13 +1321,13 @@ struct MQTTPublisher {
         if (state_maj >= STM_NEXT_CLIENT) next_client();
     }
 
-    template <typename T>
-    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, CachedValue<T> &val) const
+    template <typename T, typename CvT>
+    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p,
+                                             CachedValue<T, CvT> &val) const
     {
         String path = p.compose();
         if (!val.published() && val.remote_valid()) {
-            String sv(val.get_remote());
-            client.publish(path.c_str(), sv.c_str());
+            client.publish(path.c_str(), val.to_str().c_str());
             val.published() = true;
         }
 
@@ -1353,14 +1366,15 @@ struct MQTTPublisher {
         }
     }
 
+    template <typename T, typename CvT>
+    ICACHE_FLASH_ATTR void publish(const Path &p,
+                                   CachedValue<T, CvT> &val) const
+    {
+        if (val.published())
+            return;
 
-    template<typename T>
-    ICACHE_FLASH_ATTR void publish(const Path &p, CachedValue<T> &val) const {
-        if (val.published()) return;
-
-        String sv(val.get_remote());
         String path = p.compose();
-        client.publish(path.c_str(), sv.c_str());
+        client.publish(path.c_str(), val.to_str().c_str());
         val.published() = true;
     }
 
@@ -1443,7 +1457,6 @@ struct MQTTPublisher {
             ++state_min;
             break;
         // TODO: test_auto
-        // TODO: last_seen
         case 7:
             p.topic = mqtt::ERR;
             publish(p, hr->ctl_err);
@@ -1527,9 +1540,9 @@ struct MQTTPublisher {
 #warning the temp_wanted setting is accurate to 1 degree now. not ideal!
         const char *val = reinterpret_cast<const char*>(payload);
         switch (p.topic) {
-        case mqtt::REQ_TMP: hr->temp_wanted.set_requested(atoi(val)); break;
-        case mqtt::MODE: hr->auto_mode.set_requested(atoi(val)); break;
-        case mqtt::LOCK: hr->menu_locked.set_requested(atoi(val)); break;
+        case mqtt::REQ_TMP: hr->temp_wanted.set_requested_from_str(val); break;
+        case mqtt::MODE: hr->auto_mode.set_requested_from_str(val); break;
+        case mqtt::LOCK: hr->menu_locked.set_requested_from_str(val); break;
         case mqtt::TIMER: {
             // subswitch based on the timer topic
             switch (p.timer_topic) {
