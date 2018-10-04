@@ -8,6 +8,9 @@
 
 #include <Time.h>
 
+// every 4 minutes
+#define NTP_UPDATE_SECS (4 * 60 * 1000)
+
 namespace ntptime {
 
 struct NTPTime {
@@ -31,7 +34,7 @@ struct NTPTime {
     NTPTime()
 #ifdef NTP_CLIENT
         : ntpUDP()
-        , timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000)
+        , timeClient(ntpUDP, "europe.pool.ntp.org", 0, NTP_UPDATE_SECS) // 4 minute update time
         , tz(CEST, CET)
 #endif
     {}
@@ -44,9 +47,9 @@ struct NTPTime {
 #endif
     }
 
-    bool update() {
+    bool update(bool can_update) {
 #ifdef NTP_CLIENT
-        if (!timeInSync) {
+        if (can_update || !timeInSync) {
             timeInSync = timeClient.update();
             return timeInSync;
         }

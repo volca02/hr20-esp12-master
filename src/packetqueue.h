@@ -54,6 +54,14 @@ struct PacketQ {
         cmac.clear();
     }
 
+    uint8_t ICACHE_FLASH_ATTR get_update_count(uint8_t addr) {
+        uint8_t cntr = 0;
+        for (int i = 0; i < PACKET_QUEUE_LEN; ++i) {
+            cntr += (que[i].addr == addr) ? 1 : 0;
+        }
+        return cntr;
+    }
+
     /// insert into queue or return nullptr if full
     /// returns packet structure to be filled with data
     Packet * ICACHE_FLASH_ATTR want_to_send_for(uint8_t addr, uint8_t bytes, time_t curtime) {

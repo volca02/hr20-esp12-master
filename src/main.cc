@@ -378,8 +378,13 @@ uint8_t change_get_timer_mask(uint16_t change) {
 
 // models a single HR20 client
 struct HR20 {
-    time_t last_contact = 0; // last contact
-    bool synced = false;     // we have fully populated copy of values if true
+    time_t last_contact = 0;  // last contact
+    bool synced = false;      // we have fully populated copy of values if true
+    /** set to true means we have quite a few things to talk about with the
+     * client and would appreciate a more frequent packet exchgange.
+     * frequent comms with the client.
+     */
+    bool need_fat_comms = false;
 
     // == Controllable values ==
     // these are mirrored values - we sync them to HR20 when a change is requested
@@ -438,7 +443,10 @@ struct HR20 {
 /// Accumulates non-synced client addrs for sync force flags/addrs
 struct ForceFlags {
 
-    ICACHE_FLASH_ATTR void push(uint8_t addr) {
+    /** pushes a new client that we need to talk with.
+     * @param fat_comms This set to true means we need intense comm. when possible
+     */
+    ICACHE_FLASH_ATTR void push(uint8_t addr, bool fat_comms) {
         if (addr >= MAX_HR_COUNT) return;
 
         if (ctr < 2) {
@@ -447,12 +455,14 @@ struct ForceFlags {
 
         ctr++;
         big += 1 << addr;
+        fat |= fat_comms;
     }
 
     template<typename SyncP>
     ICACHE_FLASH_ATTR void write(SyncP &p) const {
-        DBG("(FORCE %u)", big);
-        if (ctr <= 2) {
+        DBG("(FORCE %04X)", big);
+        // do not force 2 client see-saw when we're not setting fat data
+        if (ctr <= 2 && fat) {
             p->push(small[0]);
             p->push(small[1]);
         } else {
@@ -464,9 +474,12 @@ struct ForceFlags {
         }
     }
 
+    uint8_t count() const { return ctr; }
+
     uint8_t ctr = 0;
     uint8_t small[2] = {0,0};
     uint32_t big = 0;
+    bool fat = false;
 };
 
 struct Model {
@@ -626,6 +639,10 @@ struct Protocol {
         }
     }
 
+    bool ICACHE_FLASH_ATTR no_forces() const {
+        return last_force_count == 0;
+    }
+
 protected:
     bool ICACHE_FLASH_ATTR process_sync_packet(RcvPacket &packet) {
         if (packet.rest_size() < 1+4+4) {
@@ -723,6 +740,9 @@ protected:
             // prepare for immediate response if possible - shortens discovery
             // time by 1 minute.
             queue_updates_for(addr, *hr);
+
+            // how many packets are queued for the client?
+            hr->need_fat_comms = (sndQ.get_update_count(addr) > 1);
 
             // if there's anything for the current address, we prepare to
             // send right away.
@@ -1069,16 +1089,18 @@ protected:
 
         // only fill force flags on :30
         if (rtc.ss == 30) {
-            for (uint8_t a = 0; a < MAX_HR_COUNT;++a) {
+            for (uint8_t a = 0; a < MAX_HR_COUNT; ++a) {
                 auto *hr = model[a];
                 if (!hr) continue;
                 if (hr->last_contact == 0) continue;
-                if (!hr->synced) ff.push(a);
+                if (!hr->synced) ff.push(a, hr->need_fat_comms);
             }
         }
 
         // write 2 byte force addrs or 4 byte sync flags
         ff.write(p);
+
+        last_force_count = ff.count();
 #endif
     }
 
@@ -1100,6 +1122,9 @@ protected:
     // last address we sent a packet to - limits to 1 packet for every client
     // every minute
     uint8_t last_addr = 0xFF;
+
+    /// count of forced addrs last time we iterated them in send_sync
+    uint8_t last_force_count = 0;
 
     // current read time
     time_t rd_time;
@@ -1211,6 +1236,11 @@ struct HR20Master {
 #endif
         auto sec = second(time.localTime());
         return (sec >= 50) && (sec <= 58) && radio.is_idle();
+    }
+
+    bool ICACHE_FLASH_ATTR can_update_ntp() {
+        auto sec = second(time.localTime());
+        return radio.is_idle() && (sec == 31) && proto.no_forces();
     }
 
     // RTC with NTP synchronization
@@ -1643,7 +1673,7 @@ void setup(void) {
 
 
 void loop(void) {
-    bool changed_time = time.update();
+    bool changed_time = time.update(master.can_update_ntp());
 
     bool __attribute__((unused)) sec_pass = master.update(changed_time);
 
