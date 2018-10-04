@@ -1,0 +1,28 @@
+BasedOnStyle: google
+IndentWidth: 4
+AllowShortBlocksOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+BreakBeforeBraces: Attach
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: true
+# AlignEscapedNewlines: Right
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AlwaysBreakTemplateDeclarations: false
+BinPackArguments: false
+BinPackParameters: false
+BreakBeforeBinaryOperators: NonAssignment
+ColumnLimit: 80
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 4
+ContinuationIndentWidth: 4
+# FixNamespaceComments: true
+IndentCaseLabels: false
+IndentWrappedFunctionNames: false
+NamespaceIndentation: None
+PointerAlignment: Right
+TabWidth: 4
+UseTab: Never
+BreakConstructorInitializers: BeforeColon
+FixNamespaceComments: true
+
