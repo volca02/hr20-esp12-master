@@ -16,8 +16,18 @@ struct Simple {
     }
 
     ICACHE_FLASH_ATTR static String to_str(bool val) {
-        return String{(int)val};
+        return String{(unsigned)val}; // avoid from-char conversion to be sure
     }
+
+    ICACHE_FLASH_ATTR static String to_str(uint16_t val) {
+        return String{val};
+    }
+
+    ICACHE_FLASH_ATTR static bool from_str(const String &dta, uint16_t &tgt) {
+        tgt = dta.toInt();
+        return tgt != 0 || dta == "0";
+    }
+
 
     ICACHE_FLASH_ATTR static bool from_str(const String &dta, bool &tgt) {
         if (dta.equalsIgnoreCase("true")
@@ -43,7 +53,7 @@ struct Simple {
 
 
 /** converts to/from string for 0.5 degree temperature format
- *  Format: [X].H - H being 0 or 5
+ *  Format: [X].H - H being 0 or 5, X between 5 and 30
  */
 struct TempHalfC {
     ICACHE_FLASH_ATTR static String to_str(uint8_t temp) {
@@ -93,6 +103,11 @@ struct TimeHHMM {
 
     ICACHE_FLASH_ATTR static bool from_str(const String &val, uint16_t &tgt) {
         auto colon_pos = val.indexOf(':');
+
+        // allow for minute-only linear counter here too
+        if (colon_pos < 0) {
+            return Simple::from_str(val, tgt);
+        }
 
         if (colon_pos >= 0 && ((unsigned)colon_pos < (val.length() - 1))) {
             tgt = val.substring(0, colon_pos).toInt() * 60 +
