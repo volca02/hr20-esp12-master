@@ -42,3 +42,30 @@ private:
     const char *mqtt_client_id_prefix = "OpenHR20_";
 #endif
 };
+
+// 2 minutes to resend the change request if we didn't yet get the value change confirmed
+// this is now only used to throw away old packets in packet queue
+constexpr const time_t RESEND_TIME = 2*60;
+
+// Don't try re-reading every time. Skip a few packets in-between
+constexpr const int8_t REREAD_CYCLES = 2;
+
+// Don't try setting value every time. Skip a few packets in-between
+constexpr const int8_t RESEND_CYCLES = 2;
+
+// Max. number of timers queued per one packet exchange
+constexpr const int8_t MAX_QUEUE_TIMERS = 8;
+
+// Max. count of HR clients (and a max addr)
+constexpr const uint8_t MAX_HR_COUNT = 29;
+
+// Max. count of HR clients (and a max addr)
+#define c2temp(c) (c*2)
+constexpr const uint8_t TEMP_MIN = c2temp(5);
+constexpr const uint8_t TEMP_MAX = c2temp(30);
+
+// rfm version of OpenHR20 supports 8 timers a day
+constexpr const uint8_t TIMER_SLOTS_PER_DAY = 8;
+
+// timer has 7 slots for days and 1 slot extra for repeated everyday mode
+constexpr const uint8_t TIMER_DAYS = 8;

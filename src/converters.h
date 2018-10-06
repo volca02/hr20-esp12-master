@@ -1,8 +1,12 @@
 #pragma once
 
+#include <Arduino.h>
 #include <string>
 
 namespace cvt {
+
+char ICACHE_FLASH_ATTR int2hex(uint8_t v);
+int8_t ICACHE_FLASH_ATTR hex2int(char ch);
 
 // Simple integer converter
 struct Simple {
