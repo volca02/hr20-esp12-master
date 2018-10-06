@@ -6,6 +6,8 @@
 #include "queue.h"
 #include "debug.h"
 
+namespace hr20 {
+
 constexpr const uint8_t PACKET_QUEUE_LEN = 32;
 // constexpr const uint8_t SENT_PACKET_LEN = 76;
 // 19 is empirical - maybe 24 could work, but we should analyze why the clients
@@ -229,3 +231,5 @@ struct PacketQ {
     ShortQ<6> cmac; // stores cmac for sent packet, and 2 dummy bytes
     const time_t packet_max_age;
 };
+
+} // namespace hr20

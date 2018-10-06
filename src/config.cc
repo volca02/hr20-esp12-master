@@ -1,6 +1,10 @@
+#include <FS.h>
+
 #include "config.h"
 #include "converters.h"
 #include "util.h"
+
+namespace hr20 {
 
 bool ICACHE_FLASH_ATTR Config::begin(const char *fname)
 {
@@ -227,3 +231,5 @@ bool ICACHE_FLASH_ATTR Config::load(const char *filename)
     DBG("Configuration loaded");
     return true;
 }
+
+} // namespace hr20

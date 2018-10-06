@@ -1,12 +1,11 @@
 #pragma once
 
-#include "FS.h"
 #include <Arduino.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <jsmn.h>
 #include "debug.h"
+
+namespace hr20 {
 
 struct Config
 {
@@ -69,3 +68,5 @@ constexpr const uint8_t TIMER_SLOTS_PER_DAY = 8;
 
 // timer has 7 slots for days and 1 slot extra for repeated everyday mode
 constexpr const uint8_t TIMER_DAYS = 8;
+
+} // namespace hr20

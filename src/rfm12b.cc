@@ -2,6 +2,8 @@
 #include "rfmdef.h"
 #include "debug.h"
 
+namespace hr20 {
+
 #ifndef RFM_POLL_MODE
 RFM12B *RFM12B::irq_instance = nullptr;
 #endif
@@ -317,3 +319,5 @@ void RFM12B::on_interrupt() {
     }
 }
 #endif
+
+} // namespace hr20

@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+namespace hr20 {
+
 // implements byte FIFO queue of fixed max size.
 // NOTE: Not using ICACHE_FLASH_ATTR here as this gets used from ISR too
 template<uint8_t LenT>
@@ -74,3 +76,5 @@ struct ShortQ {
 
     uint8_t operator[](uint8_t idx) const { return buf[idx]; }
 };
+
+} // namespace hr20

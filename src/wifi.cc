@@ -1,4 +1,10 @@
+#ifdef WIFI_MGR
+#include <WiFiManager.h>
+#endif
+
 #include "wifi.h"
+
+namespace hr20 {
 
 #ifndef WIFI_MGR
 
@@ -7,8 +13,6 @@ void setupWifi()
 }
 
 #else
-
-#include <WiFiManager.h>
 
 WiFiManager wifiManager;
 
@@ -102,3 +106,5 @@ void ICACHE_FLASH_ATTR setupWifi(Config &config, bool cfgLoaded) {
 }
 
 #endif
+
+} // namespace hr20

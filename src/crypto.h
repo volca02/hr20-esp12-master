@@ -5,6 +5,8 @@
 
 #include "queue.h"
 
+namespace hr20 {
+
 namespace ntptime {
 struct NTPTime;
 } // namespace ntptime
@@ -234,3 +236,4 @@ struct Crypto {
 };
 
 } // namespace crypto
+} // namespace hr20

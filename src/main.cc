@@ -16,11 +16,9 @@
 #include "debug.h"
 #include "master.h"
 
-Config config;
-
-ntptime::NTPTime time;
-
-HR20Master master{config, time};
+hr20::Config config;
+hr20::ntptime::NTPTime time;
+hr20::HR20Master master{config, time};
 int last_int = 1;
 
 #ifdef WEB_SERVER
@@ -28,9 +26,8 @@ ESP8266WebServer server(80);
 #endif
 
 #ifdef MQTT
-mqtt::MQTTPublisher publisher(config, time, master);
+hr20::mqtt::MQTTPublisher publisher(config, time, master);
 #endif
-
 
 void setup(void) {
     Serial.begin(38400);
@@ -52,7 +49,7 @@ void setup(void) {
 
 #ifdef MQTT
     // attaches the path's prefix to the setup value
-    mqtt::Path::begin(config.mqtt_topic_prefix);
+    hr20::mqtt::Path::begin(config.mqtt_topic_prefix);
     publisher.begin();
 #endif
 
@@ -61,7 +58,7 @@ void setup(void) {
               [](){
                   String status = "Valves + temperatures\n\n";
                   unsigned cnt = 0;
-                  for (unsigned i = 0; i < MAX_HR_COUNT; ++i) {
+                  for (unsigned i = 0; i < hr20::MAX_HR_COUNT; ++i) {
                       auto m = master.model[i];
 
                       if (!m) continue;

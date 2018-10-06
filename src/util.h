@@ -4,6 +4,8 @@
 
 #include "config.h"
 
+namespace hr20 {
+
 /// Delays re-requests a number of skips. Used to delay re-requests/re-submits of values
 template<int8_t RETRY_SKIPS>
 struct RequestDelay {
@@ -144,3 +146,5 @@ extern ChangeCategory timer_day_2_change[8];
 ICACHE_FLASH_ATTR inline uint8_t change_get_timer_mask(uint16_t change) {
     return (change & CHANGE_TIMER_MASK) >> 1;
 }
+
+} // namespace hr20

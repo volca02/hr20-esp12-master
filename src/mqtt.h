@@ -10,6 +10,7 @@
 #include "util.h"
 #include "wifi.h"
 
+namespace hr20 {
 namespace mqtt {
 
 // topic enum. Each has different initial letter for simple parsing
@@ -628,3 +629,4 @@ struct MQTTPublisher {
 };
 
 } // namespace mqtt
+} // namespace hr20

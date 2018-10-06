@@ -7,6 +7,8 @@
 #include "crypto.h"
 #include "packetqueue.h"
 
+namespace hr20 {
+
 /// Implements the state machine for packet sending/retrieval and radio control.
 struct HR20Master {
     ICACHE_FLASH_ATTR HR20Master(Config &config, ntptime::NTPTime &tm)
@@ -133,3 +135,5 @@ struct HR20Master {
     RcvPacket packet;
     int length = 0;
 };
+
+} // namespace hr20

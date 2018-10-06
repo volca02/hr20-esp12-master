@@ -2,6 +2,8 @@
 
 #include "converters.h"
 
+namespace hr20 {
+
 // read-only value that gets reported by HR20 (not set back, not changeable)
 template<typename T, typename CvT = cvt::Simple>
 struct CachedValue {
@@ -131,3 +133,5 @@ private:
     T requested;
     RequestDelay<RESEND_CYCLES> resend_ctr;
 };
+
+} // namespace hr20

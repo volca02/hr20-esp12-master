@@ -3,6 +3,8 @@
 #include "value.h"
 #include "timer.h"
 
+namespace hr20 {
+
 using TimerSlot = SyncedValue<Timer>;
 
 // models a single HR20 client
@@ -82,3 +84,5 @@ struct Model {
 protected:
     HR20 clients[MAX_HR_COUNT];
 };
+
+} // namespace hr20

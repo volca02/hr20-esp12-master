@@ -6,6 +6,8 @@
 #include "debug.h"
 #include "queue.h"
 
+namespace hr20 {
+
 // RFM is wired as SPI client, with GPIO2 being used as the select pin
 constexpr const uint8_t RFM_SS_PIN = 2;
 // GPIO5 is connected to NIRQ to push/pull bytes
@@ -114,3 +116,6 @@ protected:
     static void rfm_interrupt_handler();
 #endif
 };
+
+
+} // namespace hr20

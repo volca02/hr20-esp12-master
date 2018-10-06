@@ -1,5 +1,7 @@
 #include "util.h"
 
+namespace hr20 {
+
 ChangeCategory timer_day_2_change[8] = {
     CHANGE_TIMER_0,
     CHANGE_TIMER_1,
@@ -10,3 +12,5 @@ ChangeCategory timer_day_2_change[8] = {
     CHANGE_TIMER_6,
     CHANGE_TIMER_7
 };
+
+} // namespace hr20

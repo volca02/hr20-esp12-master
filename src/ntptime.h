@@ -11,6 +11,7 @@
 // every 4 minutes
 #define NTP_UPDATE_SECS (4 * 60 * 1000)
 
+namespace hr20 {
 namespace ntptime {
 
 struct NTPTime {
@@ -79,3 +80,4 @@ struct NTPTime {
 };
 
 } // namespace ntptime
+} // namespace hr20

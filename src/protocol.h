@@ -5,6 +5,8 @@
 #include "packetqueue.h"
 #include "model.h"
 
+namespace hr20 {
+
 // sent packet definition...
 // RFM_FRAME_MAX is 80, we have to have enough space for that too
 // NOTE: Technically both can be 76, since the RcvPacket does not contain
@@ -649,3 +651,6 @@ protected:
     // current read time
     time_t rd_time;
 };
+
+
+} // namespace hr20

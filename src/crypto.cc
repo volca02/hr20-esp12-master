@@ -3,6 +3,7 @@
 #include "crypto.h"
 #include "ntptime.h"
 
+namespace hr20 {
 namespace crypto {
 
 const uint8_t Crypto::Km_upper[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
@@ -96,4 +97,5 @@ void ICACHE_FLASH_ATTR Crypto::encrypt_decrypt(uint8_t *data, unsigned size) {
     }
 }
 
-}
+} // namespace crypto
+} // namespace hr20
