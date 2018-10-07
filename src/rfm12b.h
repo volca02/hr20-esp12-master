@@ -95,6 +95,8 @@ struct RFM12B {
     bool is_receiving() const { return mode == RX; }
 
 protected:
+    bool init = false;
+
     // TODO: Align this with PacketQ's SENT_PACKET_LEN
     // we have to be able to hold the whole packet at once,
     // as the naiive implementation of ShortQ does not allow for data appends

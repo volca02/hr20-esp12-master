@@ -22,6 +22,7 @@
 #endif
 
 #include "wifi.h"
+#include "error.h"
 
 namespace hr20 {
 
@@ -95,7 +96,7 @@ void ICACHE_FLASH_ATTR setupWifi(Config &config, bool cfgLoaded) {
 
     if (!wifiManager.autoConnect("OpenHR20 is not dead"))
     {
-        ERR("Failed to connect. Reset...");
+        ERR(WIFI_CANNOT_CONNECT);
         delay(3000);
         ESP.reset();
         delay(5000);
@@ -119,7 +120,7 @@ void ICACHE_FLASH_ATTR setupWifi(Config &config, bool cfgLoaded) {
 
         DBG("Saving configuration to file");
         if (!config.save("config.json")) {
-            ERR("Saving configuration failed.");
+            ERR(CFG_CANNOT_SAVE);
         }
     }
 }

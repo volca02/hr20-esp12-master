@@ -69,13 +69,13 @@ struct Protocol {
         bool   isSync    = (packet[0] & 0x80) != 0;
 
         if ((data_size + 1) > packet.size()) {
-            ERR("Incomplete packet received");
+            ERR(PROTO_INCOMPLETE_PACKET);
             return;
         }
 
         // every packet has at-least length and CMAC (1+4)
         if (data_size < 5) {
-            ERR("Packet too short");
+            ERR(PROTO_PACKET_TOO_SHORT);
             return;
         }
 
@@ -100,7 +100,7 @@ struct Protocol {
         // verification failed? return
         if (!ver) {
             // bad packet might get special handling later on...
-            ERR("BAD CMAC");
+            ERR(PROTO_BAD_CMAC);
             on_failed_verify();
             return;
         }
@@ -109,7 +109,7 @@ struct Protocol {
             process_sync_packet(packet);
         } else {
             if (packet.size() < 6) {
-                ERR("Packet too short");
+                ERR(PROTO_PACKET_TOO_SHORT);
                 return;
             }
             // not a sync packet. we have to decode it
@@ -123,7 +123,7 @@ struct Protocol {
             hex_dump(" * Decoded packet data", packet.data(), packet.size());
 #endif
             if (!process_packet(packet)) {
-                ERR("packet processing failed");
+                ERR(PROTO_CANNOT_PROCESS);
                 hex_dump("PKT", packet.data(), packet.size());
             }
         }
@@ -187,7 +187,7 @@ struct Protocol {
 protected:
     bool ICACHE_FLASH_ATTR process_sync_packet(RcvPacket &packet) {
         if (packet.rest_size() < 1+4+4) {
-            ERR("Sync packet too short");
+            ERR(PROTO_PACKET_TOO_SHORT);
             return false;
         }
 
@@ -239,7 +239,7 @@ protected:
             c &= 0x7f;
 
 /*            if (!resp) {
-                ERR("Master can't process commands");
+                ERR(PROTO_CANNOT_PROCESS);
                 return false;
             }
 */
@@ -265,12 +265,11 @@ protected:
             case 'B':
                 err |= on_reboot(addr, packet);
             default:
-                ERR("At %u: UNK. CMD %x", packet.pos(), (int)c);
+                ERR(PROTO_UNKNOWN_SEQUENCE);
                 return false;
             }
 
             if (err != OK) {
-                ERR("BAD PKT!");
                 return false;
             }
         }
@@ -310,7 +309,7 @@ protected:
         while (1) {
             // packet too short or newline missing?
             if (p.empty()) {
-                ERR("SHORT VER");
+                ERR(PROTO_RESPONSE_TOO_SHORT);
                 return ERR_PROTO;
             }
 
@@ -331,7 +330,7 @@ protected:
 
     Error ICACHE_FLASH_ATTR on_temperature(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 9) {
-            ERR("BAD TEMP %d", addr);
+            ERR(PROTO_RESPONSE_TOO_SHORT);
             // reset the temp request status on the HR20 that reported this problem
             HR20 *hr = model[addr];
             if (!hr) return ERR_MODEL;
@@ -344,7 +343,7 @@ protected:
 
     Error ICACHE_FLASH_ATTR on_debug(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 9) {
-            ERR("SHORT DBG");
+            ERR(PROTO_RESPONSE_TOO_SHORT);
             return ERR_PROTO;
         }
 
@@ -396,7 +395,7 @@ protected:
 
     Error ICACHE_FLASH_ATTR on_watch(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 3) {
-            ERR("SHORT WATCH");
+            ERR(PROTO_RESPONSE_TOO_SHORT);
             return ERR_PROTO;
         }
 
@@ -413,7 +412,7 @@ protected:
 
     Error ICACHE_FLASH_ATTR on_timers(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 3) {
-            ERR("SHORT TMR");
+            ERR(PROTO_RESPONSE_TOO_SHORT);
             return ERR_PROTO;
         }
 
@@ -429,14 +428,12 @@ protected:
         uint8_t slot = idx & 0xF;
 
         if (slot >= TIMER_SLOTS_PER_DAY) {
-            // slot num too high
-            ERR("Timer slot too high %hu", slot);
+            ERR(PROTO_BAD_TIMER);
             return ERR_PROTO;
         }
 
         if (day >= TIMER_DAYS) {
-            // slot num too high
-            ERR("Timer day too high %hu", day);
+            ERR(PROTO_BAD_TIMER);
             return ERR_PROTO;
         }
 
@@ -449,7 +446,7 @@ protected:
 
     Error ICACHE_FLASH_ATTR on_eeprom(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 2) {
-            ERR("SHORT EEPROM");
+            ERR(PROTO_RESPONSE_TOO_SHORT);
             return ERR_PROTO;
         }
 
@@ -464,7 +461,7 @@ protected:
 
     Error ICACHE_FLASH_ATTR on_menu_lock(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 1) {
-            ERR("SHORT MLCK");
+            ERR(PROTO_RESPONSE_TOO_SHORT);
             return ERR_PROTO;
         }
 
@@ -481,7 +478,7 @@ protected:
 
     Error ICACHE_FLASH_ATTR on_reboot(uint8_t addr, RcvPacket &p) {
         if (p.rest_size() < 2) {
-            ERR("SHORT REBOOT");
+            ERR(PROTO_RESPONSE_TOO_SHORT);
             return ERR_PROTO;
         }
 
@@ -553,12 +550,12 @@ protected:
         uint8_t temp = temp_wanted.get_requested();
 
         if (temp < TEMP_MIN - 1) {
-            ERR("Temp too low %d", temp);
+            ERR(PROTO_BAD_TEMP);
             temp_wanted.reset_requested();
         }
 
         if (temp > TEMP_MAX + 1) {
-            ERR("Temp too high %d", temp);
+            ERR(PROTO_BAD_TEMP);
             temp_wanted.reset_requested();
         }
 

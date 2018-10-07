@@ -24,6 +24,7 @@
 #include "crypto.h"
 #include "queue.h"
 #include "debug.h"
+#include "error.h"
 
 namespace hr20 {
 
@@ -117,7 +118,7 @@ struct PacketQ {
         }
 
         // full
-        ERR("Q FULL");
+        ERR(QUEUE_FULL);
         return nullptr;
     }
 
@@ -125,7 +126,7 @@ struct PacketQ {
     // prepared packet present
     bool ICACHE_FLASH_ATTR prepare_to_send_to(uint8_t addr) {
         if (sending) {
-            ERR("PREP IN SND");
+            ERR(QUEUE_PREPARE_WHILE_SEND);
             return false;
         }
 

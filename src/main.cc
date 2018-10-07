@@ -28,8 +28,6 @@
 #endif
 
 #include "config.h"
-#include "queue.h"
-#include "rfm12b.h"
 #include "wifi.h"
 #include "ntptime.h"
 #include "debug.h"

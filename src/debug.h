@@ -23,11 +23,9 @@
 #define DBGI(...) do { Serial.printf(__VA_ARGS__); } while (0)
 #define DBG(...) do { Serial.printf(__VA_ARGS__); Serial.println(); } while (0)
 // TODO: BETTER ERROR REPORTING
-#define ERR(...) do { Serial.write("(!ERR "); Serial.printf(__VA_ARGS__); Serial.println("!)"); } while (0)
 #else
 #define DBGI(...) do { } while (0)
 #define DBG(...) do { } while (0)
-#define ERR(...) do { } while (0)
 #endif
 
 #ifdef DEBUG

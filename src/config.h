@@ -22,6 +22,7 @@
 #include <Arduino.h>
 #include <string.h>
 #include <jsmn.h>
+
 #include "debug.h"
 
 namespace hr20 {
@@ -87,5 +88,8 @@ constexpr const uint8_t TIMER_SLOTS_PER_DAY = 8;
 
 // timer has 7 slots for days and 1 slot extra for repeated everyday mode
 constexpr const uint8_t TIMER_DAYS = 8;
+
+// should we retain the published topics?
+constexpr const bool MQTT_RETAIN = true;
 
 } // namespace hr20

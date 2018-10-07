@@ -22,6 +22,7 @@
 #include "config.h"
 #include "converters.h"
 #include "util.h"
+#include "error.h"
 
 namespace hr20 {
 
@@ -65,7 +66,7 @@ bool ICACHE_FLASH_ATTR Config::set_rfm_pass(const char *rfmPass) {
 
         if ((x0 < 0) || (x1 < 0)) {
             // happens even for short passwords
-            ERR("Invalid char in RFM password");
+            ERR(CFG_MALFORMED_RFM_PASSWORD);
             return false;
         }
 
@@ -81,7 +82,7 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
     SPIFFS.begin();
     File file = SPIFFS.open(filename, "w");
     if (!file) {
-        ERR("Config file open failed");
+        ERR(CFG_CANNOT_OPEN);
         SPIFFS.end();
         return false;
     } else {
@@ -155,7 +156,7 @@ bool ICACHE_FLASH_ATTR Config::load(const char *filename)
     }
     else
     {
-        ERR("Config file not found.");
+        ERR(CFG_NOT_FOUND);
         SPIFFS.end();
         return false;
     }
@@ -171,13 +172,13 @@ bool ICACHE_FLASH_ATTR Config::load(const char *filename)
     r = jsmn_parse(&p, JSON_STRING, strlen(JSON_STRING), t, sizeof(t) / sizeof(t[0]));
     if (r < 0)
     {
-        ERR("Failed to parse JSON: %d", r);
+        ERR_ARG(CFG_FAILED_TO_PARSE, r);
         return false;
     }
     /* Assume the top-level element is an object */
     if (r < 1 || t[0].type != JSMN_OBJECT)
     {
-        ERR("Invalid JSON. Object expected");
+        ERR(CFG_INVALID_JSON);
         return false;
     }
 
@@ -190,7 +191,7 @@ bool ICACHE_FLASH_ATTR Config::load(const char *filename)
         {
             if (len != 16)
             {
-                ERR("Invalid RFM password length");
+                ERR(CFG_MALFORMED_RFM_PASSWORD);
                 return false;
             }
             if (!set_rfm_pass(JSON_STRING + offset))

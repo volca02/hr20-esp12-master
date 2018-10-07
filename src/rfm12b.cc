@@ -20,6 +20,7 @@
 #include "rfm12b.h"
 #include "rfmdef.h"
 #include "debug.h"
+#include "error.h"
 
 namespace hr20 {
 
@@ -43,6 +44,13 @@ struct SPIScope {
 };
 
 void RFM12B::begin() {
+    if (init) {
+        ERR(RFM_ALREADY_INITIALIZED);
+        return;
+    }
+
+    init = true;
+
     SPI.begin();
 
     // set GPIO2 to be our NSEL pin
@@ -54,7 +62,7 @@ void RFM12B::begin() {
 
 #ifndef RFM_POLL_MODE
     if (irq_instance != nullptr) {
-        ERR("Multiple registrations for RFM");
+        ERR(RFM_ALREADY_INITIALIZED);
     } else {
         irq_instance = this;
 
@@ -198,6 +206,11 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
     if (mode == TX) return -2;
 
     auto st = read_status();
+
+    if (st & RFM_STATUS_RGUR) {
+        ERR(RFM_RX_OVERFLOW); // RX overflow
+    }
+
     if (st & RFM_STATUS_FFIT) {
         // forced RX as the radio woken up from IDLE for sure
         mode = RX;
@@ -215,7 +228,7 @@ bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
     auto st = read_status();
 
     if (st & RFM_STATUS_RGUR) {
-        ERR("RGUR");
+        ERR(RFM_TX_UNDERRUN); // TX underrun
     }
 
     if (st & RFM_STATUS_RGIT) {

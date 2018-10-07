@@ -23,6 +23,8 @@
 #include <WiFiClient.h>
 
 #include "config.h"
+#include "debug.h"
+#include "error.h"
 #include "ntptime.h"
 #include "master.h"
 #include "util.h"
@@ -339,7 +341,7 @@ struct MQTTPublisher {
             // just store last time we did it and retry
             // if we get over retry time
             if (!client.connect(config.mqtt_client_id)) {
-                ERR("MQTT conn. err.");
+                ERR(MQTT_CANNOT_CONNECT);
                 return false;
             }
         }
@@ -397,14 +399,39 @@ struct MQTTPublisher {
     }
 
     template <typename T, typename CvT>
-    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p,
-                                             CachedValue<T, CvT> &val) const
+    ICACHE_FLASH_ATTR void publish(const String &path,
+                                   CachedValue<T, CvT> &val) const
+    {
+        if (val.published() || !val.remote_valid())
+            return;
+
+        client.publish(path.c_str(), val.to_str().c_str(), /*retained*/ MQTT_RETAIN);
+        val.published() = true;
+    }
+
+    template <typename T, typename CvT>
+    ICACHE_FLASH_ATTR void publish(const Path &p,
+                                   CachedValue<T, CvT> &val) const
     {
         String path = p.compose();
-        if (!val.published() && val.remote_valid()) {
-            client.publish(path.c_str(), val.to_str().c_str());
-            val.published() = true;
-        }
+        publish(path.c_str(), val);
+    }
+
+    // simple publish for non-cached values (i.e. lastContact)
+    template<typename T>
+    ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
+        String sv(val);
+        String path = p.compose();
+        client.publish(path.c_str(), sv.c_str(), /*retained*/ MQTT_RETAIN);
+    }
+
+    template <typename T, typename CvT>
+    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p,
+                                             SyncedValue<T, CvT> &val) const
+    {
+        String path = p.compose();
+
+        publish(path, val);
 
         if (!val.subscribed()) {
             client.subscribe(path.c_str());
@@ -413,7 +440,7 @@ struct MQTTPublisher {
     }
 
     // timer publishes and subscribes two topics, so we overload for it...
-    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, CachedValue<Timer> &val) const
+    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, TimerSlot &val) const
     {
         // clone paths and set the two possile endings for them
         Path mode_path{p};
@@ -427,8 +454,14 @@ struct MQTTPublisher {
         String time_p_str = time_path.compose();
 
         if (!val.published() && val.remote_valid()) {
-            client.publish(mode_p_str.c_str(), cvt::Simple::to_str(val.get_remote().mode()).c_str());
-            client.publish(time_p_str.c_str(), cvt::TimeHHMM::to_str(val.get_remote().time()).c_str());
+            const auto &remote = val.get_remote();
+
+            client.publish(mode_p_str.c_str(),
+                           cvt::Simple::to_str(remote.mode()).c_str(),
+                           /*retained*/ MQTT_RETAIN);
+            client.publish(time_p_str.c_str(),
+                           cvt::TimeHHMM::to_str(remote.time()).c_str(),
+                           /*retained*/ MQTT_RETAIN);
             val.published() = true;
         }
 
@@ -437,36 +470,6 @@ struct MQTTPublisher {
             client.subscribe(time_p_str.c_str());
             val.subscribed() = true;
         }
-    }
-
-    template <typename T, typename CvT>
-    ICACHE_FLASH_ATTR void publish(const Path &p,
-                                   CachedValue<T, CvT> &val) const
-    {
-        if (val.published())
-            return;
-
-        String path = p.compose();
-        client.publish(path.c_str(), val.to_str().c_str());
-        val.published() = true;
-    }
-
-    template <typename T>
-    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, const T &val,
-                                             bool is_published,
-                                             bool is_subscribed) const
-    {
-        String sv(val);
-        String path = p.compose();
-        if (!is_published)  client.publish(path.c_str(), sv.c_str());
-        if (!is_subscribed) client.subscribe(path.c_str());
-    }
-
-    template<typename T>
-    ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
-        String sv(val);
-        String path = p.compose();
-        client.publish(path.c_str(), sv.c_str());
     }
 
     ICACHE_FLASH_ATTR void publish_frequent() {
@@ -483,7 +486,7 @@ struct MQTTPublisher {
 
         auto *hr = master.model[addr];
         if (!hr) {
-            ERR("Change on invalid client");
+            ERR(MQTT_INVALID_CLIENT);
             return;
         }
 
@@ -550,7 +553,7 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void publish_timers() {
         auto *hr = master.model[addr];
         if (!hr) {
-            ERR("Change on invalid client");
+            ERR(MQTT_INVALID_CLIENT);
             return;
         }
 
@@ -600,13 +603,13 @@ struct MQTTPublisher {
         Path p = Path::parse(topic);
 
         if (!p.valid()) {
-            ERR("Invalid topic %s", topic);
+            ERR(MQTT_INVALID_TOPIC);
             return;
         }
 
         auto *hr = master.model[p.addr];
         if (!hr) {
-            ERR("Callback to set on invalid client");
+            ERR(MQTT_CALLBACK_BAD_ADDR);
             return;
         }
 
@@ -620,11 +623,11 @@ struct MQTTPublisher {
             switch (p.timer_topic) {
             case mqtt::TIMER_MODE: hr->set_timer_mode(p.day, p.slot, val); break;
             case mqtt::TIMER_TIME: hr->set_timer_time(p.day, p.slot, val); break;
-            default: ERR("Non-settable timer topic change requested: %s", topic);
+            default: ERR(MQTT_INVALID_TIMER_TOPIC);
             }
             break;
         }
-        default: ERR("Non-settable topic change requested: %s", topic);
+        default: ERR(MQTT_INVALID_TOPIC);
         }
 
 #ifdef VERBOSE

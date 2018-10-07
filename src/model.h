@@ -94,7 +94,7 @@ struct HR20 {
 struct Model {
     HR20 * ICACHE_FLASH_ATTR operator[](uint8_t idx) {
         if (idx >= MAX_HR_COUNT) {
-            ERR("Client address out of range");
+            ERR(PROTO_BAD_CLIENT_ADDR);
             return nullptr;
         }
         return &clients[idx];

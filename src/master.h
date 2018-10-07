@@ -70,14 +70,14 @@ struct HR20Master {
         if (b < 0) return;
 
         if (!packet.push(b)) {
-            ERR("packet exceeds maximal length. Discarding");
+            ERR(PROTO_PACKET_TOO_LONG);
             wait_for_sync();
         }
 
         if (length == 0) {
             length = b & ~0x80;
             if (length == 0) {
-                ERR("Zero length packet");
+                ERR(PROTO_EMPTY_PACKET);
                 wait_for_sync();
                 return;
             } else {
