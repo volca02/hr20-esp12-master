@@ -69,7 +69,8 @@ const char * ICACHE_FLASH_ATTR err_to_str(ErrorCode err) {
 
 void ICACHE_FLASH_ATTR report_error(ErrorCode err, int val) {
     Serial.write("(!ERR ");
-    Serial.print(err_to_str(err));
+//    Serial.print(err_to_str(err));
+    Serial.print(err);
     Serial.print(" ");
     Serial.print(val);
     Serial.println("!)");
