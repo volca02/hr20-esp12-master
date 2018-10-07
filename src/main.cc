@@ -43,7 +43,7 @@ ESP8266WebServer server(80);
 #endif
 
 #ifdef MQTT
-hr20::mqtt::MQTTPublisher publisher(config, time, master);
+hr20::mqtt::MQTTPublisher publisher(config, master);
 #endif
 
 void setup(void) {
@@ -102,15 +102,20 @@ void setup(void) {
 
 
 void loop(void) {
+    time_t now = time.localTime();
+
     bool changed_time = time.update(master.can_update_ntp());
 
-    bool __attribute__((unused)) sec_pass = master.update(changed_time);
+    // re-read local time now that we re-set time.
+    if (changed_time) now = time.localTime();
+
+    bool __attribute__((unused)) sec_pass = master.update(changed_time, now);
 
     // sec_pass = second passed (once every second)
 
 #ifdef MQTT
     // only update mqtt if we have a time to do so, as controlled by master
-    if (master.is_idle()) publisher.update();
+    if (master.is_idle()) publisher.update(now);
 #endif
 
     // feed the watchdog...

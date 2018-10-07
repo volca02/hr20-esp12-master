@@ -25,7 +25,6 @@
 #include "config.h"
 #include "debug.h"
 #include "error.h"
-#include "ntptime.h"
 #include "master.h"
 #include "util.h"
 #include "wifi.h"
@@ -314,10 +313,8 @@ struct Path {
 struct MQTTPublisher {
     // TODO: Make this configurable!
     ICACHE_FLASH_ATTR MQTTPublisher(Config &config,
-                                    ntptime::NTPTime &time,
                                     HR20Master &master)
         : config(config),
-          time(time),
           master(master),
           wifiClient(),
           client(wifiClient)
@@ -337,11 +334,9 @@ struct MQTTPublisher {
                                   });
     }
 
-    ICACHE_FLASH_ATTR bool reconnect() {
+    ICACHE_FLASH_ATTR bool reconnect(time_t now) {
         if (!client.connected()) {
             DBG("(MQTT CONN)");
-
-            time_t now = time.localTime();
 
             if ((now - last_conn) <  MQTT_RECONNECT_TIME)
                 return false;
@@ -366,12 +361,12 @@ struct MQTTPublisher {
         STM_NEXT_CLIENT = 2
     };
 
-    ICACHE_FLASH_ATTR void update() {
+    ICACHE_FLASH_ATTR void update(time_t now) {
         client.loop();
 
         // TODO: Try to reconnect in intervals. Don't block the main loop too
         // often
-        if (!reconnect()) return;
+        if (!reconnect(now)) return;
 
         if (!states[addr]) {
             // no changes for this client
@@ -648,7 +643,6 @@ struct MQTTPublisher {
     }
 
     Config &config;
-    ntptime::NTPTime &time;
     HR20Master &master;
     WiFiClient wifiClient;
     /// seriously, const correctness anyone? PubSubClient does not have single const method...

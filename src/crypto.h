@@ -198,7 +198,7 @@ struct Crypto {
     void begin(const uint8_t *rfm_pass);
 
     // updates the rtc if needed. Returns true if second passed
-    bool update();
+    bool update(time_t now);
 
     // packet payload encrypt/decrypt function
     void encrypt_decrypt(uint8_t *data, unsigned size);

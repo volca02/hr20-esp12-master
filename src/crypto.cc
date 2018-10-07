@@ -81,8 +81,7 @@ void ICACHE_FLASH_ATTR Crypto::begin(const uint8_t *rfm_pass)
     roll(K1, K2);
 }
 
-bool ICACHE_FLASH_ATTR Crypto::update() {
-    time_t now = time.localTime();
+bool ICACHE_FLASH_ATTR Crypto::update(time_t now) {
     if (now != lastTime) {
         lastTime = now;
         rtc.YY = year(now)-2000;

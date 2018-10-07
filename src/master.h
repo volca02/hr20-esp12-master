@@ -44,11 +44,12 @@ struct HR20Master {
         radio.begin();
     }
 
-    bool ICACHE_FLASH_ATTR update(bool changed_time) {
+    bool ICACHE_FLASH_ATTR update(bool changed_time, time_t now) {
         radio.poll();
 
         // Note: could use [[maybe_unused]] in C++17
-        bool __attribute__((unused)) sec_pass = crypto.update(); // update the crypto rtc if needed
+        // update the crypto rtc if needed
+        bool __attribute__((unused)) sec_pass = crypto.update(now);
 
         // TODO: if it's 00 or 30, we send sync
         if (sec_pass) {
