@@ -27,6 +27,9 @@
 
 #include <Time.h>
 
+#include "debug.h"
+#include "error.h"
+
 // every 4 minutes
 #define NTP_UPDATE_SECS (4 * 60 * 1000)
 
@@ -70,7 +73,9 @@ struct NTPTime {
     bool update(bool can_update) {
 #ifdef NTP_CLIENT
         if (can_update || !timeInSync) {
+            DBGI("(NTP)");
             timeInSync = timeClient.update();
+            if (!timeInSync) ERR(NTP_CANNOT_SYNC);
             return timeInSync;
         }
 #endif

@@ -82,6 +82,10 @@ enum ErrorCode {
     MQTT_INVALID_TOPIC,
     MQTT_INVALID_TIMER_TOPIC,
     MQTT_CALLBACK_BAD_ADDR,
+
+    // ========== NTP ==========
+    // NTP errors
+    NTP_CANNOT_SYNC = 70
 };
 
 const char *err_to_str(ErrorCode err);

@@ -313,13 +313,16 @@ struct Path {
 /// Publishes/receives topics in mqtt
 struct MQTTPublisher {
     // TODO: Make this configurable!
-    ICACHE_FLASH_ATTR MQTTPublisher(Config &config, ntptime::NTPTime &time,
+    ICACHE_FLASH_ATTR MQTTPublisher(Config &config,
+                                    ntptime::NTPTime &time,
                                     HR20Master &master)
-        : config(config), time(time), master(master), wifiClient(),
+        : config(config),
+          time(time),
+          master(master),
+          wifiClient(),
           client(wifiClient)
     {
-      for (uint8_t i = 0; i < MAX_HR_COUNT; ++i)
-        states[i] = 0;
+        for (uint8_t i = 0; i < MAX_HR_COUNT; ++i) states[i] = 0;
     }
 
     ICACHE_FLASH_ATTR void begin() {
@@ -337,6 +340,14 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR bool reconnect() {
         if (!client.connected()) {
             DBG("(MQTT CONN)");
+
+            time_t now = time.localTime();
+
+            if ((now - last_conn) <  MQTT_RECONNECT_TIME)
+                return false;
+
+            last_conn = now;
+
             // TODO: only try this once a few seconds or so
             // just store last time we did it and retry
             // if we get over retry time
@@ -345,6 +356,7 @@ struct MQTTPublisher {
                 return false;
             }
         }
+
         return true;
     }
 
@@ -647,6 +659,7 @@ struct MQTTPublisher {
     uint8_t addr = 0;
     uint8_t state_maj = 0; // state category (FREQUENT, CALENDAR)
     uint8_t state_min = 0; // state detail (depends on major state)
+    time_t last_conn  = 0; // last connection attempt
 };
 
 } // namespace mqtt

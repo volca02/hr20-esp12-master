@@ -92,4 +92,7 @@ constexpr const uint8_t TIMER_DAYS = 8;
 // should we retain the published topics?
 constexpr const bool MQTT_RETAIN = true;
 
+// Reconnect attempt every N seconds
+constexpr const time_t MQTT_RECONNECT_TIME = 10;
+
 } // namespace hr20
