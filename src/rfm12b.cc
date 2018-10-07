@@ -208,7 +208,10 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
     auto st = read_status();
 
     if (st & RFM_STATUS_RGUR) {
-        ERR(RFM_RX_OVERFLOW); // RX overflow
+        // ERR(RFM_RX_OVERFLOW); // RX overflow
+        // Not reporting, happens too often when we're not interested in
+        // incoming data any more, but didn't manage to close the RX
+        // in time.
     }
 
     if (st & RFM_STATUS_FFIT) {
