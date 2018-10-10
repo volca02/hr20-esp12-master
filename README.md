@@ -7,7 +7,7 @@ controlled and monitored via network.
 
 It is a complete clean reimplementation of the master portion of the RFM12 based OpenHR20 project branch.
 
-Compared to the rfmsrc variant of OpenHR20, this implementation enables direct conrol (via MQTT protocol)
+Compared to the rfmsrc variant of OpenHR20, this implementation enables direct control (via MQTT protocol)
 of the HR20 clients using only ESP8266 and a connected radio module RFM12, with no additional computer
 necessary.
 
