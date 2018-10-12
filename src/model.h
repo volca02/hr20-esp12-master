@@ -28,6 +28,11 @@ using TimerSlot = SyncedValue<Timer>;
 
 // models a single HR20 client
 struct HR20 {
+    HR20() {}
+
+    HR20(const HR20 &) = delete; // not copyable
+    const HR20 &operator = (const HR20 &) = delete;
+
     time_t last_contact = 0;  // last contact
     bool synced = false;      // we have fully populated copy of values if true
     /** set to true means we have quite a few things to talk about with the
@@ -92,6 +97,8 @@ struct HR20 {
 
 // Holds all clients in one array
 struct Model {
+    Model() {};
+
     HR20 * ICACHE_FLASH_ATTR operator[](uint8_t idx) {
         if (idx >= MAX_HR_COUNT) {
             ERR(PROTO_BAD_CLIENT_ADDR);
@@ -101,6 +108,8 @@ struct Model {
     }
 
 protected:
+    Model(const Model &) = delete;
+
     HR20 clients[MAX_HR_COUNT];
 };
 
