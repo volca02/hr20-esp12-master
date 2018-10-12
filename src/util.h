@@ -167,7 +167,7 @@ ICACHE_FLASH_ATTR inline uint8_t change_get_timer_mask(uint16_t change) {
 }
 
 // minimalistic javascript composition utilities
-namespace js {
+namespace json {
 
 // wraps context with curly brace prepend/append operation to string
 struct Curly {
@@ -191,7 +191,8 @@ ICACHE_FLASH_ATTR void str(String &str, const T &val) {
 }
 
 struct Object : public Curly {
-    Object(String &s) : Curly(s) {}
+    ICACHE_FLASH_ATTR Object(String &s) : Curly(s) {}
+    ICACHE_FLASH_ATTR Object(Object &o) : Curly(o.s) {}
 
     template<typename T>
     ICACHE_FLASH_ATTR void key(const T &name) {

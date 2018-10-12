@@ -32,6 +32,7 @@ struct WebServer {
 
     ICACHE_FLASH_ATTR void begin() {
         server.on("/list", [&]() { handle_list(); } );
+        server.on("/timer", [&]() { handle_timer(); } );
 
         server.on("/",
                   [&](){
@@ -65,7 +66,7 @@ struct WebServer {
         String result;
 
         {
-            js::Object main(result);
+            json::Object main(result);
 
             // iterate all clients
             for (unsigned i = 0; i < hr20::MAX_HR_COUNT; ++i) {
@@ -87,11 +88,73 @@ struct WebServer {
     }
 
     ICACHE_FLASH_ATTR void append_client_attr(String &str, const HR20 *client) {
-        js::Object obj(str);
+        json::Object obj(str);
 
         // attributes follow.
         obj.key("temp");
-        js::str(str, client->temp_avg.to_str());
+        json::str(str, client->temp_avg.to_str());
+    }
+
+    ICACHE_FLASH_ATTR void handle_timer() {
+        // did we get an argument?
+        auto client = server.arg("client");
+
+        int caddr = client.toInt();
+
+        if (caddr == 0) {
+            // compose a json list of all visible clients
+            server.send(404, "text/plan", "Invalid client");
+            return;
+        }
+
+        // try to fetch the client
+        const auto &m = master.model[caddr];
+
+        if (!m || m->last_contact == 0) {
+            // compose a json list of all visible clients
+            server.send(404, "text/plan", "Invalid client");
+            return;
+        }
+
+        // okay we have a valid client
+        String result;
+
+        { // intentional brace to close the json before we send it
+            json::Object obj(result);
+
+            // spew the whole timer table
+            for (uint8_t idx = 0; idx < TIMER_DAYS; ++idx) {
+                obj.key(idx);
+                append_timer_day(result, *m, idx);
+            }
+        }
+
+        // compose a json list of all visible clients
+        server.send(200, "application/javascript", result);
+    }
+
+    ICACHE_FLASH_ATTR void append_timer_day(String &str, const HR20 &m, uint8_t day) {
+        json::Object day_obj(str);
+
+        for (uint8_t idx = 0; idx < TIMER_SLOTS_PER_DAY; ++idx) {
+            // skip timer we don't know yet
+            if (!m.timers[day][idx].remote_valid()) continue;
+
+            // this index is synced.
+            day_obj.key(idx);
+
+            // remote timer is read
+            const auto &remote = m.timers[day][idx].get_remote();
+
+            // value is an object
+            json::Object slot(day_obj);
+
+
+            slot.key("time");
+            json::str(str, cvt::TimeHHMM::to_str(remote.time()));
+            slot.key("mode");
+            json::str(str, cvt::Simple::to_str(remote.mode()));
+        }
     }
 
     ICACHE_FLASH_ATTR void update() {
