@@ -19,19 +19,23 @@
 
 #include <Arduino.h>
 
-#ifdef WEB_SERVER
-#include <ESP8266WebServer.h>
-#endif
-
-#ifdef MQTT
-#include "mqtt.h"
-#endif
-
 #include "config.h"
 #include "wifi.h"
 #include "ntptime.h"
 #include "debug.h"
 #include "master.h"
+
+#ifdef WEB_SERVER
+#include "webserver.h"
+#endif
+
+#ifdef HR20_DISPLAY
+#include "display.h"
+#endif
+
+#ifdef MQTT
+#include "mqtt.h"
+#endif
 
 hr20::Config config;
 hr20::ntptime::NTPTime time;
@@ -39,12 +43,17 @@ hr20::HR20Master master{config, time};
 int last_int = 1;
 
 #ifdef WEB_SERVER
-ESP8266WebServer server(80);
+hr20::WebServer webserver(master);
 #endif
 
 #ifdef MQTT
 hr20::mqtt::MQTTPublisher publisher(config, master);
 #endif
+
+#ifdef HR20_DISPLAY
+hr20::Display display(master);
+#endif
+
 
 void setup(void) {
     Serial.begin(38400);
@@ -70,39 +79,20 @@ void setup(void) {
     publisher.begin();
 #endif
 
+#ifdef HR20_DISPLAY
+    display.begin();
+#endif
+
 #ifdef WEB_SERVER
-    server.on("/",
-              [](){
-                  String status = "Valves + temperatures\n\n";
-                  unsigned cnt = 0;
-                  for (unsigned i = 0; i < hr20::MAX_HR_COUNT; ++i) {
-                      auto m = master.model[i];
-
-                      if (!m) continue;
-                      if (m->last_contact == 0) continue;
-
-
-                      ++cnt;
-                      status += "Valve ";
-                      status += String(i, HEX);
-                      status += " - ";
-                      status += String(float(m->temp_avg.get_remote()) / 100.0f, 2);
-                      status += String('\n');
-                  }
-
-                  status += String('\n');
-                  status += String(cnt);
-                  status += " total";
-
-                  server.send(200, "text/plain", status);
-              });
-    server.begin();
+    webserver.begin();
 #endif
 }
 
-
 void loop(void) {
     time_t now = time.localTime();
+
+    // feed the watchdog...
+    ESP.wdtFeed();
 
     bool changed_time = time.update(master.can_update_ntp());
 
@@ -118,10 +108,11 @@ void loop(void) {
     if (master.is_idle()) publisher.update(now);
 #endif
 
-    // feed the watchdog...
-    ESP.wdtFeed();
+#ifdef HR20_DISPLAY
+    // TODO: Eats a lot of time. display.update();
+#endif
 
 #ifdef WEB_SERVER
-    server.handleClient();
+    if (master.is_idle()) webserver.update();
 #endif
 }

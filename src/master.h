@@ -92,6 +92,7 @@ struct HR20Master {
 
         if (!length) {
             DBG("(RCV %u)", packet.size());
+            // TODO: Close the RX sooner here
             proto.receive(packet);
             wait_for_sync();
         }

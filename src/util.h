@@ -166,4 +166,43 @@ ICACHE_FLASH_ATTR inline uint8_t change_get_timer_mask(uint16_t change) {
     return (change & CHANGE_TIMER_MASK) >> 1;
 }
 
+// minimalistic javascript composition utilities
+namespace js {
+
+// wraps context with curly brace prepend/append operation to string
+struct Curly {
+    ICACHE_FLASH_ATTR Curly(String &s) : s(s) {
+        s += '{';
+    }
+
+    ICACHE_FLASH_ATTR ~Curly() {
+        s += '}';
+    }
+
+    String &s;
+};
+
+template<typename T>
+ICACHE_FLASH_ATTR void str(String &str, const T &val) {
+    // NOTE: Does not escape, so it will break on some chars!
+    str += '"';
+    str += val;
+    str += '"';
+}
+
+struct Object : public Curly {
+    Object(String &s) : Curly(s) {}
+
+    template<typename T>
+    ICACHE_FLASH_ATTR void key(const T &name) {
+        if (!first) s += ", ";
+        first = false;
+        str(s, name);
+        s += " : ";
+    }
+
+    bool first = true;
+};
+
+} // namespace js
 } // namespace hr20
