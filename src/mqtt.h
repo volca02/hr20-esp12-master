@@ -362,11 +362,11 @@ struct MQTTPublisher {
     };
 
     ICACHE_FLASH_ATTR void update(time_t now) {
-        client.loop();
-
         // TODO: Try to reconnect in intervals. Don't block the main loop too
         // often
         if (!reconnect(now)) return;
+
+        client.loop();
 
         if (!states[addr]) {
             // no changes for this client
