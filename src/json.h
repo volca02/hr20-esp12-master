@@ -56,10 +56,10 @@ struct Object : public Curly {
 
     template<typename T>
     inline void key(const T &name) {
-        if (!first) s += ", ";
+        if (!first) s += ",";
         first = false;
         str(s, name);
-        s += " : ";
+        s += ":";
     }
 
     bool first = true;
@@ -72,7 +72,9 @@ inline void kv(Object &o, const T &name, const V &val) {
     str(o.s, val);
 }
 
-void append_client_attr(String &str, const HR20 &client);
+void append_client_attr(String &str,
+                        const HR20 &client,
+                        bool last_contact = true);
 void append_timer_day(String &str, const HR20 &m, uint8_t day);
 
 } // namespace json

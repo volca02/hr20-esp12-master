@@ -576,7 +576,7 @@ struct MQTTPublisher {
         STATE(9): {
             p.topic = mqtt::STATE;
             String json_state;
-            json::append_client_attr(json_state, *hr);
+            json::append_client_attr(json_state, *hr, /*last_contact*/ false);
             publish(p, json_state);
             NEXT_MIN_STATE;
         }
