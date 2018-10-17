@@ -89,10 +89,10 @@ protected:
 struct CMAC {
     enum { CMAC_SIZE = 4 };
 
-    ICACHE_FLASH_ATTR CMAC(const uint8_t *k1,
-                           const uint8_t *k2,
-                           const uint8_t *kmac,
-                           const uint8_t *prefix = nullptr)
+    inline CMAC(const uint8_t *k1,
+                const uint8_t *k2,
+                const uint8_t *kmac,
+                const uint8_t *prefix = nullptr)
         : k1(k1), k2(k2), kmac(kmac), xt(kmac), pos(0)
     {
         if (prefix) {

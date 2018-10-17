@@ -28,6 +28,7 @@
 #include "master.h"
 #include "util.h"
 #include "wifi.h"
+#include "json.h"
 
 namespace hr20 {
 namespace mqtt {
@@ -44,6 +45,7 @@ enum Topic {
     WND,
     LAST_SEEN,
     TIMER,
+    STATE,
     INVALID_TOPIC = 255
 };
 
@@ -63,6 +65,7 @@ static const char *S_REQ_TMP   = "requested_temp"; // 14
 static const char *S_VALVE_WTD = "valve_wanted";
 static const char *S_WND       = "window";
 static const char *S_LAST_SEEN = "last_seen";
+static const char *S_STATE     = "state";
 
 static const char *S_TIMER     = "timer";
 static unsigned    S_TIMER_LEN = 5;
@@ -126,6 +129,9 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         return INVALID_TOPIC;
     case 'w':
         if (strcmp(top, S_WND) == 0) return WND;
+        return INVALID_TOPIC;
+    case 's':
+        if (strcmp(top, S_STATE) == 0) return STATE;
         return INVALID_TOPIC;
     default:
         return INVALID_TOPIC;
@@ -432,6 +438,11 @@ struct MQTTPublisher {
         client.publish(path.c_str(), sv.c_str(), /*retained*/ MQTT_RETAIN);
     }
 
+    ICACHE_FLASH_ATTR void publish(const Path &p, const String &val) const {
+        String path = p.compose();
+        client.publish(path.c_str(), val.c_str(), /*retained*/ MQTT_RETAIN);
+    }
+
     template <typename T, typename CvT>
     ICACHE_FLASH_ATTR void publish_subscribe(const Path &p,
                                              SyncedValue<T, CvT> &val) const
@@ -548,8 +559,19 @@ struct MQTTPublisher {
         case 8:
             p.topic = mqtt::LAST_SEEN;
             publish(p, hr->last_contact);
+#ifndef MQTT_JSON
             // fallthrough!
-        case 9:
+#else
+            break;
+        case 9: {
+            p.topic = mqtt::STATE;
+            String json_state;
+            json::append_client_attr(json_state, *hr);
+            publish(p, json_state);
+            // fallthrough!
+        }
+#endif
+        default:
             // clear out the change bit
             states[addr] &= ~CHANGE_FREQUENT;
             next_major(); // moves to next major state

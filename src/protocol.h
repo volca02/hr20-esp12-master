@@ -21,6 +21,7 @@
 
 #include "config.h"
 #include "util.h"
+#include "ntptime.h"
 #include "packetqueue.h"
 #include "model.h"
 

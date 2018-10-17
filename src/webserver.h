@@ -23,7 +23,7 @@
 #include <ESP8266WebServer.h>
 
 #include "master.h"
-
+#include "json.h"
 
 namespace hr20 {
 
@@ -78,28 +78,13 @@ struct WebServer {
                 // append a key for this client
                 main.key(i);
                 // append value for this object
-                append_client_attr(result, m);
+                json::append_client_attr(result, *m);
             }
 
         } // closes the curly brace
 
         // compose a json list of all visible clients
         server.send(200, "application/javascript", result);
-    }
-
-    ICACHE_FLASH_ATTR void append_client_attr(String &str, const HR20 *client) {
-        json::Object obj(str);
-
-        // attributes follow.
-        json::kv(obj, "mode", client->auto_mode.to_str());
-        json::kv(obj, "lock", client->menu_locked.to_str());
-        json::kv(obj, "window", client->mode_window.to_str());
-        json::kv(obj, "temp", client->temp_avg.to_str());
-        json::kv(obj, "battery", client->bat_avg.to_str());
-        json::kv(obj, "temp_wanted", client->temp_wanted.to_str());
-        json::kv(obj, "valve_wanted", client->cur_valve_wtd.to_str());
-        json::kv(obj, "error", client->ctl_err.to_str());
-        json::kv(obj, "last_contact", String(client->last_contact));
     }
 
     ICACHE_FLASH_ATTR void handle_timer() {
@@ -132,36 +117,12 @@ struct WebServer {
             // spew the whole timer table
             for (uint8_t idx = 0; idx < TIMER_DAYS; ++idx) {
                 obj.key(idx);
-                append_timer_day(result, *m, idx);
+                json::append_timer_day(result, *m, idx);
             }
         }
 
         // compose a json list of all visible clients
         server.send(200, "application/javascript", result);
-    }
-
-    ICACHE_FLASH_ATTR void append_timer_day(String &str, const HR20 &m, uint8_t day) {
-        json::Object day_obj(str);
-
-        for (uint8_t idx = 0; idx < TIMER_SLOTS_PER_DAY; ++idx) {
-            // skip timer we don't know yet
-            if (!m.timers[day][idx].remote_valid()) continue;
-
-            // this index is synced.
-            day_obj.key(idx);
-
-            // remote timer is read
-            const auto &remote = m.timers[day][idx].get_remote();
-
-            // value is an object
-            json::Object slot(day_obj);
-
-
-            slot.key("time");
-            json::str(str, cvt::TimeHHMM::to_str(remote.time()));
-            slot.key("mode");
-            json::str(str, cvt::Simple::to_str(remote.mode()));
-        }
     }
 
     ICACHE_FLASH_ATTR void update() {
