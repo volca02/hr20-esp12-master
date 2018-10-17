@@ -205,5 +205,13 @@ struct Object : public Curly {
     bool first = true;
 };
 
+// key value for Object
+template<typename T, typename V>
+ICACHE_FLASH_ATTR void kv(Object &o, const T &name, const V &val) {
+    o.key(name);
+    str(o.s, val);
+}
+
+
 } // namespace js
 } // namespace hr20

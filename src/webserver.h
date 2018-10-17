@@ -91,8 +91,15 @@ struct WebServer {
         json::Object obj(str);
 
         // attributes follow.
-        obj.key("temp");
-        json::str(str, client->temp_avg.to_str());
+        json::kv(obj, "mode", client->auto_mode.to_str());
+        json::kv(obj, "lock", client->menu_locked.to_str());
+        json::kv(obj, "window", client->mode_window.to_str());
+        json::kv(obj, "temp", client->temp_avg.to_str());
+        json::kv(obj, "battery", client->bat_avg.to_str());
+        json::kv(obj, "temp_wanted", client->temp_wanted.to_str());
+        json::kv(obj, "valve_wanted", client->cur_valve_wtd.to_str());
+        json::kv(obj, "error", client->ctl_err.to_str());
+        json::kv(obj, "last_contact", String(client->last_contact));
     }
 
     ICACHE_FLASH_ATTR void handle_timer() {
