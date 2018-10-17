@@ -85,6 +85,7 @@ ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     case VALVE_WTD: return S_VALVE_WTD;
     case WND:       return S_WND;
     case LAST_SEEN: return S_LAST_SEEN;
+    case STATE:     return S_STATE;
     case TIMER:     return S_TIMER;
     default:
         return "invalid!";
@@ -121,6 +122,9 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
     case 'r':
         if (strcmp(top, S_REQ_TMP) == 0) return REQ_TMP;
         return INVALID_TOPIC;
+    case 's':
+        if (strcmp(top, S_STATE) == 0) return STATE;
+        return INVALID_TOPIC;
     case 't':
         if (strncmp(top, S_TIMER, S_TIMER_LEN) == 0) return TIMER;
         return INVALID_TOPIC;
@@ -129,9 +133,6 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         return INVALID_TOPIC;
     case 'w':
         if (strcmp(top, S_WND) == 0) return WND;
-        return INVALID_TOPIC;
-    case 's':
-        if (strcmp(top, S_STATE) == 0) return STATE;
         return INVALID_TOPIC;
     default:
         return INVALID_TOPIC;
@@ -342,12 +343,11 @@ struct MQTTPublisher {
 
     ICACHE_FLASH_ATTR bool reconnect(time_t now) {
         if (!client.connected()) {
-            DBG("(MQTT CONN)");
-
             if ((now - last_conn) <  MQTT_RECONNECT_TIME)
                 return false;
-
             last_conn = now;
+
+            DBG("(MQTT CONN)");
 
             // TODO: only try this once a few seconds or so
             // just store last time we did it and retry
@@ -418,7 +418,13 @@ struct MQTTPublisher {
         if (val.published() || !val.remote_valid())
             return;
 
-        client.publish(path.c_str(), val.to_str().c_str(), /*retained*/ MQTT_RETAIN);
+        auto vstr = val.to_str();
+
+        client.publish(path.c_str(),
+                       reinterpret_cast<const uint8_t *>(vstr.c_str()),
+                       vstr.length(),
+                       /*retained*/ MQTT_RETAIN);
+
         val.published() = true;
     }
 
@@ -435,12 +441,18 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
         String sv(val);
         String path = p.compose();
-        client.publish(path.c_str(), sv.c_str(), /*retained*/ MQTT_RETAIN);
+        client.publish(path.c_str(),
+                       reinterpret_cast<const uint8_t *>(sv.c_str()),
+                       sv.length(),
+                       /*retained*/ MQTT_RETAIN);
     }
 
     ICACHE_FLASH_ATTR void publish(const Path &p, const String &val) const {
         String path = p.compose();
-        client.publish(path.c_str(), val.c_str(), /*retained*/ MQTT_RETAIN);
+        client.publish(path.c_str(),
+                       reinterpret_cast<const uint8_t *>(val.c_str()),
+                       val.length(),
+                       /*retained*/ MQTT_RETAIN);
     }
 
     template <typename T, typename CvT>
@@ -474,11 +486,16 @@ struct MQTTPublisher {
         if (!val.published() && val.remote_valid()) {
             const auto &remote = val.get_remote();
 
+            auto mode = cvt::Simple::to_str(remote.mode());
+            auto time = cvt::TimeHHMM::to_str(remote.time());
+
             client.publish(mode_p_str.c_str(),
-                           cvt::Simple::to_str(remote.mode()).c_str(),
+                           reinterpret_cast<const uint8_t *>(mode.c_str()),
+                           mode.length(),
                            /*retained*/ MQTT_RETAIN);
             client.publish(time_p_str.c_str(),
-                           cvt::TimeHHMM::to_str(remote.time()).c_str(),
+                           reinterpret_cast<const uint8_t *>(time.c_str()),
+                           time.length(),
                            /*retained*/ MQTT_RETAIN);
             val.published() = true;
         }
@@ -510,65 +527,58 @@ struct MQTTPublisher {
 
         Path p{addr, mqtt::INVALID_TOPIC};
 
+#define STATE(ST) case ST
+#define NEXT_MIN_STATE ++state_min; break;
+
         switch (state_min) {
-        case 0:
+        STATE(0):
             p.topic = mqtt::MODE;
             publish_subscribe(p, hr->auto_mode);
-            ++state_min;
-            break;
-        case 1:
+            NEXT_MIN_STATE;
+        STATE(1):
             p.topic = mqtt::LOCK;
             publish_subscribe(p, hr->menu_locked);
-            ++state_min;
-            break;
-        case 2:
+            NEXT_MIN_STATE;
+        STATE(2):
             p.topic = mqtt::WND;
             publish(p, hr->mode_window);
-            ++state_min;
-            break;
-        case 3:
+            NEXT_MIN_STATE;
+        STATE(3):
             // TODO: this is in 0.01 of C, change it to float?
             p.topic = mqtt::AVG_TMP;
             publish(p, hr->temp_avg);
-            ++state_min;
-            break;
-        case 4:
+            NEXT_MIN_STATE;
+        STATE(4):
             // TODO: Battery is in 0.01 of V, change it to float?
             p.topic = mqtt::BAT;
             publish(p, hr->bat_avg);
-            ++state_min;
-            break;
-        case 5:
+            NEXT_MIN_STATE;
+        STATE(5):
             // TODO: Fix formatting for temp_wanted - float?
             // temp_wanted is in 0.5 C
             p.topic = mqtt::REQ_TMP;
             publish_subscribe(p, hr->temp_wanted);
-            ++state_min;
-            break;
-        case 6:
+            NEXT_MIN_STATE;
+        STATE(6):
             p.topic = mqtt::VALVE_WTD;
             publish(p, hr->cur_valve_wtd);
-            ++state_min;
-            break;
+            NEXT_MIN_STATE;
         // TODO: test_auto
-        case 7:
+        STATE(7):
             p.topic = mqtt::ERR;
             publish(p, hr->ctl_err);
-            ++state_min;
-            break;
-        case 8:
+            NEXT_MIN_STATE;
+        STATE(8):
             p.topic = mqtt::LAST_SEEN;
             publish(p, hr->last_contact);
-#ifndef MQTT_JSON
-            // fallthrough!
-#else
-            break;
-        case 9: {
+            NEXT_MIN_STATE;
+#ifdef MQTT_JSON
+        STATE(9): {
             p.topic = mqtt::STATE;
             String json_state;
             json::append_client_attr(json_state, *hr);
             publish(p, json_state);
-            // fallthrough!
+            NEXT_MIN_STATE;
         }
 #endif
         default:
@@ -577,6 +587,8 @@ struct MQTTPublisher {
             next_major(); // moves to next major state
             break;
         }
+#undef STATE
+#undef NEXT_MIN_STATE
     }
 
     ICACHE_FLASH_ATTR void publish_timers() {
