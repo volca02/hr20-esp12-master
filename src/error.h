@@ -82,6 +82,7 @@ enum ErrorCode {
     MQTT_INVALID_TOPIC,
     MQTT_INVALID_TIMER_TOPIC,
     MQTT_CALLBACK_BAD_ADDR,
+    MQTT_CANT_PUBLISH,
 
     // ========== NTP ==========
     // NTP errors

@@ -420,10 +420,13 @@ struct MQTTPublisher {
 
         auto vstr = val.to_str();
 
-        client.publish(path.c_str(),
-                       reinterpret_cast<const uint8_t *>(vstr.c_str()),
-                       vstr.length(),
-                       /*retained*/ MQTT_RETAIN);
+        if (!client.publish(path.c_str(),
+                            reinterpret_cast<const uint8_t *>(vstr.c_str()),
+                            vstr.length(),
+                            /*retained*/ MQTT_RETAIN))
+        {
+            ERR(MQTT_CANT_PUBLISH);
+        }
 
         val.published() = true;
     }
@@ -441,18 +444,25 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
         String sv(val);
         String path = p.compose();
-        client.publish(path.c_str(),
+
+        if (!client.publish(path.c_str(),
                        reinterpret_cast<const uint8_t *>(sv.c_str()),
                        sv.length(),
-                       /*retained*/ MQTT_RETAIN);
+                       /*retained*/ MQTT_RETAIN))
+        {
+            ERR(MQTT_CANT_PUBLISH);
+        }
     }
 
     ICACHE_FLASH_ATTR void publish(const Path &p, const String &val) const {
         String path = p.compose();
-        client.publish(path.c_str(),
-                       reinterpret_cast<const uint8_t *>(val.c_str()),
-                       val.length(),
-                       /*retained*/ MQTT_RETAIN);
+        if (!client.publish(path.c_str(),
+                            reinterpret_cast<const uint8_t *>(val.c_str()),
+                            val.length(),
+                            /*retained*/ MQTT_RETAIN))
+        {
+            ERR(MQTT_CANT_PUBLISH);
+        }
     }
 
     template <typename T, typename CvT>
@@ -489,14 +499,22 @@ struct MQTTPublisher {
             auto mode = cvt::Simple::to_str(remote.mode());
             auto time = cvt::TimeHHMM::to_str(remote.time());
 
-            client.publish(mode_p_str.c_str(),
-                           reinterpret_cast<const uint8_t *>(mode.c_str()),
-                           mode.length(),
-                           /*retained*/ MQTT_RETAIN);
-            client.publish(time_p_str.c_str(),
-                           reinterpret_cast<const uint8_t *>(time.c_str()),
-                           time.length(),
-                           /*retained*/ MQTT_RETAIN);
+            bool err =
+                client.publish(mode_p_str.c_str(),
+                               reinterpret_cast<const uint8_t *>(mode.c_str()),
+                               mode.length(),
+                               /*retained*/ MQTT_RETAIN);
+            bool err1 =
+                client.publish(time_p_str.c_str(),
+                               reinterpret_cast<const uint8_t *>(time.c_str()),
+                               time.length(),
+                               /*retained*/ MQTT_RETAIN);
+
+
+            if (!err || !err1) {
+                ERR(MQTT_CANT_PUBLISH);
+            }
+
             val.published() = true;
         }
 
