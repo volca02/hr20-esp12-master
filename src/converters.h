@@ -39,7 +39,7 @@ struct Simple {
     }
 
     ICACHE_FLASH_ATTR static String to_str(bool val) {
-        return String{(unsigned)val}; // avoid from-char conversion to be sure
+        return val ? "true" : "false";
     }
 
     ICACHE_FLASH_ATTR static String to_str(uint16_t val) {

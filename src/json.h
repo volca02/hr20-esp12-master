@@ -29,19 +29,6 @@ struct HR20;
 
 namespace json {
 
-// wraps context with curly brace prepend/append operation to string
-struct Curly {
-    ICACHE_FLASH_ATTR Curly(String &s) : s(s) {
-        s += '{';
-    }
-
-    ICACHE_FLASH_ATTR ~Curly() {
-        s += '}';
-    }
-
-    String &s;
-};
-
 template<typename T>
 inline void str(String &str, const T &val) {
     // NOTE: Does not escape, so it will break on some chars!
@@ -50,9 +37,14 @@ inline void str(String &str, const T &val) {
     str += '"';
 }
 
-struct Object : public Curly {
-    ICACHE_FLASH_ATTR Object(String &s) : Curly(s) {}
-    ICACHE_FLASH_ATTR Object(Object &o) : Curly(o.s) {}
+struct Object {
+    ICACHE_FLASH_ATTR Object(String &s) : s(s) { s += '{'; }
+    ICACHE_FLASH_ATTR Object(Object &o) : s(o.s) { s += '{'; }
+
+    ICACHE_FLASH_ATTR ~Object() {
+        s += '}';
+    }
+
 
     template<typename T>
     inline void key(const T &name) {
@@ -62,19 +54,26 @@ struct Object : public Curly {
         s += ":";
     }
 
+    String &s;
     bool first = true;
 };
 
 // key value for Object
 template<typename T, typename V>
-inline void kv(Object &o, const T &name, const V &val) {
+inline void kv_str(Object &o, const T &name, const V &val) {
     o.key(name);
     str(o.s, val);
 }
 
+template<typename T, typename V>
+inline void kv_raw(Object &o, const T &name, const V &val) {
+    o.key(name);
+    o.s += val;
+}
+
 void append_client_attr(String &str,
-                        const HR20 &client,
-                        bool last_contact = true);
+                        const HR20 &client);
+
 void append_timer_day(String &str, const HR20 &m, uint8_t day);
 
 } // namespace json

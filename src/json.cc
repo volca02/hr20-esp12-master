@@ -26,25 +26,22 @@ namespace hr20 {
 namespace json {
 
 ICACHE_FLASH_ATTR void append_client_attr(String &str,
-                                          const HR20 &client,
-                                          bool last_contact)
+                                          const HR20 &client)
 {
     // this is intentionally cryptic as we have to fit in 128 bytes
     // for PubSubClient to be able to handle us
     json::Object obj(str);
 
     // attributes follow.
-    json::kv(obj, "md", client.auto_mode.to_str());
-    json::kv(obj, "lck", client.menu_locked.to_str());
-    json::kv(obj, "win", client.mode_window.to_str());
-    json::kv(obj, "tmp", client.temp_avg.to_str());
-    json::kv(obj, "bat", client.bat_avg.to_str());
-    json::kv(obj, "tmpw", client.temp_wanted.to_str());
-    json::kv(obj, "vlvw", client.cur_valve_wtd.to_str());
-    json::kv(obj, "err", client.ctl_err.to_str());
-
-    if (last_contact)
-        json::kv(obj, "lst", String(client.last_contact));
+    json::kv_raw(obj, "auto", client.auto_mode.to_str());
+    json::kv_raw(obj, "lock", client.menu_locked.to_str());
+    json::kv_raw(obj, "window", client.mode_window.to_str());
+    json::kv_raw(obj, "temp", client.temp_avg.to_str());
+    json::kv_raw(obj, "bat", client.bat_avg.to_str());
+    json::kv_raw(obj, "temp_wtd", client.temp_wanted.to_str());
+    json::kv_raw(obj, "valve_wtd", client.cur_valve_wtd.to_str());
+    json::kv_raw(obj, "error", client.ctl_err.to_str());
+    json::kv_raw(obj, "last_seen", String(client.last_contact));
 }
 
 ICACHE_FLASH_ATTR void append_timer_day(String &str, const HR20 &m, uint8_t day)
