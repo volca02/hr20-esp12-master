@@ -82,7 +82,6 @@ struct CachedValue {
     }
 
 protected:
-
     Flags flags;
     RequestDelay<REREAD_CYCLES> reread_ctr;
     T remote;
@@ -142,10 +141,16 @@ struct SyncedValue : public CachedValue<T, CvT> {
         return this->remote == this->requested;
     }
 
-    ICACHE_FLASH_ATTR void set_requested_from_str(const String &val) {
+    /** sets requested value by parsing a string. Returs true of the parse was ok
+     *  and value was set. */
+    ICACHE_FLASH_ATTR bool set_requested_from_str(const String &val) {
         T cvtd;
-        if (Converter::from_str(val, cvtd))
+        if (Converter::from_str(val, cvtd)) {
             set_requested(cvtd);
+            return true;
+        }
+
+        return false;
     }
 
 private:

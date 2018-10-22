@@ -75,7 +75,7 @@ enum ErrorCode {
     CFG_INVALID_JSON,
     CFG_CANNOT_SAVE,
 
-    // ========== CONFIG ==========
+    // ========== MQTT ==========
     // MQTT errors
     MQTT_CANNOT_CONNECT = 60,
     MQTT_INVALID_CLIENT,
@@ -83,6 +83,7 @@ enum ErrorCode {
     MQTT_INVALID_TIMER_TOPIC,
     MQTT_CALLBACK_BAD_ADDR,
     MQTT_CANT_PUBLISH,
+    MQTT_INVALID_TOPIC_VALUE,
 
     // ========== NTP ==========
     // NTP errors

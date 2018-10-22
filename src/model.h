@@ -78,20 +78,34 @@ struct HR20 {
     // controller error
     CachedValue<uint8_t>  ctl_err;
 
-    ICACHE_FLASH_ATTR void set_timer_mode(uint8_t day, uint8_t slot, const char *val) {
-        if (day >= TIMER_DAYS) return;
-        if (slot >= TIMER_SLOTS_PER_DAY) return;
 
-        timers[day][slot].get_requested().set_mode(atoi(val) & 0x0F);
+    ICACHE_FLASH_ATTR bool set_timer_mode(uint8_t day, uint8_t slot, const String &val) {
+        if (day >= TIMER_DAYS) return false;
+        if (slot >= TIMER_SLOTS_PER_DAY) return false;
+
+        uint8_t cvtd;
+
+        if (cvt::Simple::from_str(val, cvtd)) {
+            timers[day][slot].get_requested().set_mode(cvtd & 0x0F);
+            return true;
+        } else {
+            return false;
+        }
+
+        return true;
     }
 
-    ICACHE_FLASH_ATTR void set_timer_time(uint8_t day, uint8_t slot, const char *val) {
-        if (day >= TIMER_DAYS) return;
-        if (slot >= TIMER_SLOTS_PER_DAY) return;
+    ICACHE_FLASH_ATTR bool set_timer_time(uint8_t day, uint8_t slot, const String &val) {
+        if (day >= TIMER_DAYS) return false;
+        if (slot >= TIMER_SLOTS_PER_DAY) return false;
 
         uint16_t cvtd;
-        if (cvt::TimeHHMM::from_str(val, cvtd))
+        if (cvt::TimeHHMM::from_str(val, cvtd)) {
             timers[day][slot].get_requested().set_time(cvtd);
+            return true;
+        } else {
+            return false;
+        }
     }
 };
 

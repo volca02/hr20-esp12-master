@@ -166,4 +166,15 @@ ICACHE_FLASH_ATTR inline uint8_t change_get_timer_mask(uint16_t change) {
     return (change & CHANGE_TIMER_MASK) >> 1;
 }
 
+class StringFromBuf : public String {
+public:
+    StringFromBuf(const void *cstr, unsigned int length) : String() {
+        String::concat(static_cast<const char*>(cstr), length);
+    }
+};
+
+inline String buf_to_string(const void *buf, unsigned len) {
+    return std::move(StringFromBuf{buf, len});
+}
+
 } // namespace hr20

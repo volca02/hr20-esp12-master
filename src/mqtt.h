@@ -672,21 +672,32 @@ struct MQTTPublisher {
             return;
         }
 
-        const char *val = reinterpret_cast<const char*>(payload);
+        bool ok = true; // either bad topic or conversion went ok
+        // Arduino string does NOT have char*+len concat/ctor...
+        String val = buf_to_string(payload, length);
+
         switch (p.topic) {
-        case mqtt::REQ_TMP: hr->temp_wanted.set_requested_from_str(val); break;
-        case mqtt::MODE: hr->auto_mode.set_requested_from_str(val); break;
-        case mqtt::LOCK: hr->menu_locked.set_requested_from_str(val); break;
+        case mqtt::REQ_TMP: ok = hr->temp_wanted.set_requested_from_str(val); break;
+        case mqtt::MODE: ok = hr->auto_mode.set_requested_from_str(val); break;
+        case mqtt::LOCK: ok = hr->menu_locked.set_requested_from_str(val); break;
         case mqtt::TIMER: {
             // subswitch based on the timer topic
             switch (p.timer_topic) {
-            case mqtt::TIMER_MODE: hr->set_timer_mode(p.day, p.slot, val); break;
-            case mqtt::TIMER_TIME: hr->set_timer_time(p.day, p.slot, val); break;
+            case mqtt::TIMER_MODE: ok = hr->set_timer_mode(p.day, p.slot, val); break;
+            case mqtt::TIMER_TIME: ok = hr->set_timer_time(p.day, p.slot, val); break;
             default: ERR(MQTT_INVALID_TIMER_TOPIC);
             }
             break;
         }
         default: ERR(MQTT_INVALID_TOPIC);
+        }
+
+        // conversion went sideways
+        if (!ok) {
+            ERR_ARG(MQTT_INVALID_TOPIC_VALUE, p.topic);
+#ifdef VERBOSE
+            DBG("(MQ ERR %d %d %s)", p.addr, p.topic, payload);
+#endif
         }
 
 #ifdef VERBOSE
