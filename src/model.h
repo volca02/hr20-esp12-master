@@ -88,11 +88,9 @@ struct HR20 {
         if (cvt::Simple::from_str(val, cvtd)) {
             timers[day][slot].get_requested().set_mode(cvtd & 0x0F);
             return true;
-        } else {
-            return false;
         }
 
-        return true;
+        return false;
     }
 
     ICACHE_FLASH_ATTR bool set_timer_time(uint8_t day, uint8_t slot, const String &val) {
@@ -103,9 +101,9 @@ struct HR20 {
         if (cvt::TimeHHMM::from_str(val, cvtd)) {
             timers[day][slot].get_requested().set_time(cvtd);
             return true;
-        } else {
-            return false;
         }
+
+        return false;
     }
 };
 

@@ -674,13 +674,24 @@ struct MQTTPublisher {
 
         bool ok = true; // either bad topic or conversion went ok
         // Arduino string does NOT have char*+len concat/ctor...
-        String val = buf_to_string(payload, length);
+        StringBuffer val{payload, length};
 
         switch (p.topic) {
         case mqtt::REQ_TMP: ok = hr->temp_wanted.set_requested_from_str(val); break;
         case mqtt::MODE: ok = hr->auto_mode.set_requested_from_str(val); break;
         case mqtt::LOCK: ok = hr->menu_locked.set_requested_from_str(val); break;
         case mqtt::TIMER: {
+            // check day/slot first
+            if (p.day >= TIMER_DAYS) {
+                ERR_ARG(MQTT_INVALID_TIMER_TOPIC, p.day | 0x10);
+                break;
+            }
+
+            if (p.slot >= TIMER_SLOTS_PER_DAY) {
+                ERR_ARG(MQTT_INVALID_TIMER_TOPIC, p.slot | 0x20);
+                break;
+            }
+
             // subswitch based on the timer topic
             switch (p.timer_topic) {
             case mqtt::TIMER_MODE: ok = hr->set_timer_mode(p.day, p.slot, val); break;

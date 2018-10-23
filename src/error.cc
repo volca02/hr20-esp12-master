@@ -20,10 +20,11 @@
 #include <Arduino.h>
 
 #include "error.h"
+#include "eventlog.h"
 
 namespace hr20 {
 
-const char * ICACHE_FLASH_ATTR err_to_str(ErrorCode err) {
+ICACHE_FLASH_ATTR const char * err_to_str(ErrorCode err) {
 #define HANDLE(CODE) case CODE: return #CODE;
     switch (err) {
         HANDLE(QUEUE_FULL);
@@ -60,6 +61,10 @@ const char * ICACHE_FLASH_ATTR err_to_str(ErrorCode err) {
         HANDLE(MQTT_INVALID_TOPIC);
         HANDLE(MQTT_INVALID_TIMER_TOPIC);
         HANDLE(MQTT_CALLBACK_BAD_ADDR);
+        HANDLE(MQTT_CANT_PUBLISH);
+        HANDLE(MQTT_INVALID_TOPIC_VALUE);
+
+        HANDLE(NTP_CANNOT_SYNC);
 
     default:
         return "INVALID_ERROR_CODE";
@@ -74,7 +79,6 @@ void ICACHE_FLASH_ATTR report_error(ErrorCode err, int val) {
     Serial.print(" ");
     Serial.print(val);
     Serial.println("!)");
-}
 
 
 } // namespace hr20

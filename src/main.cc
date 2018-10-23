@@ -24,6 +24,7 @@
 #include "ntptime.h"
 #include "debug.h"
 #include "master.h"
+#include "eventlog.h"
 
 #ifdef WEB_SERVER
 #include "webserver.h"
@@ -90,6 +91,8 @@ void setup(void) {
 
 void loop(void) {
     time_t now = time.localTime();
+
+    hr20::eventLog.loop(now);
 
     // feed the watchdog...
     ESP.wdtFeed();

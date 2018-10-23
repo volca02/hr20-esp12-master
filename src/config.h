@@ -95,4 +95,7 @@ constexpr const bool MQTT_RETAIN = true;
 // Reconnect attempt every N seconds
 constexpr const time_t MQTT_RECONNECT_TIME = 10;
 
+// Length of a log ring buffer (last N events)
+constexpr const uint16_t EVENT_LOG_LEN = 256;
+
 } // namespace hr20
