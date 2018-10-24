@@ -62,9 +62,8 @@ private:
 #endif
 };
 
-// 2 minutes to resend the change request if we didn't yet get the value change confirmed
-// this is now only used to throw away old packets in packet queue
-constexpr const time_t RESEND_TIME = 2*60;
+// 2 minutes before the packet is surely discarded
+constexpr const time_t PACKET_DISCARD_AGE = 2*60;
 
 // Don't try re-reading every time. Skip a few packets in-between
 constexpr const int8_t REREAD_CYCLES = 2;

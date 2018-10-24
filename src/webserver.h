@@ -33,6 +33,7 @@ struct WebServer {
     ICACHE_FLASH_ATTR void begin() {
         server.on("/list", [&]() { handle_list(); } );
         server.on("/timer", [&]() { handle_timer(); } );
+        server.on("/events", [&]() { handle_events(); } );
 
         server.on("/",
                   [&](){
@@ -124,6 +125,33 @@ struct WebServer {
         // compose a json list of all visible clients
         server.send(200, "application/javascript", result);
     }
+
+    ICACHE_FLASH_ATTR void handle_events() {
+        String result;
+
+        {
+            json::Object main(result);
+
+            main.key("events");
+            json::Array arr(main);
+
+            // iterate all clients
+            for (const auto &event : eventLog) {
+                if (event.time == 0) continue;
+
+                // a comma is inserted unless this is first element
+                arr.element();
+
+                // append value itself
+                json::append_event(result, event);
+            }
+
+        } // closes the curly brace
+
+        // compose a json list of all visible clients
+        server.send(200, "application/javascript", result);
+    }
+
 
     ICACHE_FLASH_ATTR void update() {
         server.handleClient();

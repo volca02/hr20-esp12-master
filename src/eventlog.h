@@ -44,18 +44,16 @@ enum EventCode {
 
 ICACHE_FLASH_ATTR const char * event_to_str(EventCode err);
 
+// Event type
+struct Event {
+    EventType type;
+    int code    = 0; // code is severity dependent, either EventCode or ErrorCode
+    int value   = 0;
+    time_t time = 0;
+};
+
 // Singleton event log ring buffer
 struct EventLog {
-    struct Event {
-        EventType type;
-        int code    = 0; // code is severity dependent, either EventCode or ErrorCode
-        int value   = 0;
-        time_t time = 0;
-    };
-
-    Event events[EVENT_LOG_LEN];
-    uint8_t pos = 0;
-
     ICACHE_FLASH_ATTR void loop(time_t now) {
         this->now = now;
     }
@@ -71,6 +69,48 @@ struct EventLog {
         pos = (pos + 1) % EVENT_LOG_LEN;
     }
 
+    struct const_iterator {
+        const_iterator(const EventLog &owner, uint16_t pos)
+            : owner(owner), pos(pos)
+        {}
+
+        const Event &operator *() const {
+            return owner.events[pos % EVENT_LOG_LEN];
+        }
+
+        const Event *operator->() const {
+            return &owner.events[pos % EVENT_LOG_LEN];
+        }
+
+        bool operator==(const_iterator &o) {
+            return pos % EVENT_LOG_LEN == o.pos % EVENT_LOG_LEN;
+        }
+
+        bool operator!=(const_iterator &o) {
+            return pos % EVENT_LOG_LEN != o.pos % EVENT_LOG_LEN;
+        }
+
+        const_iterator &operator++() {
+            ++pos;
+            return *this;
+        }
+
+        const EventLog &owner;
+        uint8_t  pos;
+    };
+
+    const_iterator begin() const {
+        return {*this, pos};
+    }
+
+    const_iterator end() const {
+        uint16_t endpos = (pos + EVENT_LOG_LEN - 1) % EVENT_LOG_LEN;
+        return {*this, endpos};
+    }
+
+protected:
+    Event events[EVENT_LOG_LEN];
+    uint16_t pos = 0;
     time_t now;
 };
 

@@ -34,7 +34,7 @@ struct HR20Master {
         : config(config),
           time(tm),
           crypto{time},
-          queue{crypto, RESEND_TIME},
+          queue{crypto, PACKET_DISCARD_AGE},
           proto{model, time, crypto, queue}
     {}
 

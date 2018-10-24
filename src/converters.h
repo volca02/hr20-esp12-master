@@ -46,6 +46,18 @@ struct Simple {
         return String{val};
     }
 
+    ICACHE_FLASH_ATTR static String to_str(int val) {
+        return String{val};
+    }
+
+    ICACHE_FLASH_ATTR static String to_str(unsigned val) {
+        return String{val};
+    }
+
+    ICACHE_FLASH_ATTR static String to_str(time_t val) {
+        return String{val};
+    }
+
     ICACHE_FLASH_ATTR static bool from_str(const String &dta, uint16_t &tgt) {
         tgt = dta.toInt();
         return tgt != 0 || dta == "0";

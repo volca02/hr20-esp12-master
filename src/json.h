@@ -26,6 +26,7 @@
 namespace hr20 {
 
 struct HR20;
+struct Event;
 
 namespace json {
 
@@ -37,25 +38,53 @@ inline void str(String &str, const T &val) {
     str += '"';
 }
 
-struct Object {
-    ICACHE_FLASH_ATTR Object(String &s) : s(s) { s += '{'; }
-    ICACHE_FLASH_ATTR Object(Object &o) : s(o.s) { s += '{'; }
+struct Comma {
+    inline void next(String &s) {
+        if (!first) s += ',';
+        first = false;
+    }
 
-    ICACHE_FLASH_ATTR ~Object() {
+    bool first = true;
+};
+
+struct Element {
+    ICACHE_FLASH_ATTR Element(String &s)  : s(s)   {}
+    ICACHE_FLASH_ATTR Element(Element &e) : s(e.s) {}
+    ICACHE_FLASH_ATTR ~Element() {}
+    String &s;
+};
+
+struct Object : public Element {
+    ICACHE_FLASH_ATTR Object(String &s) : Element(s) { s += '{'; }
+    ICACHE_FLASH_ATTR Object(Object &o) : Element(o) { s += '{'; }
+
+    inline ~Object() {
         s += '}';
     }
 
-
     template<typename T>
     inline void key(const T &name) {
-        if (!first) s += ",";
-        first = false;
+        comma.next(s);
         str(s, name);
-        s += ":";
+        s += ':';
     }
 
-    String &s;
-    bool first = true;
+    Comma comma;
+};
+
+struct Array : public Element {
+    ICACHE_FLASH_ATTR Array(String &s)  : Element(s) { s += '['; }
+    ICACHE_FLASH_ATTR Array(Element &b) : Element(b) { s += '['; }
+
+    ICACHE_FLASH_ATTR void element() {
+        comma.next(s);
+    }
+
+    ICACHE_FLASH_ATTR ~Array() {
+        s += ']';
+    }
+
+    Comma comma;
 };
 
 // key value for Object
@@ -71,10 +100,9 @@ inline void kv_raw(Object &o, const T &name, const V &val) {
     o.s += val;
 }
 
-void append_client_attr(String &str,
-                        const HR20 &client);
-
+void append_client_attr(String &str, const HR20 &client);
 void append_timer_day(String &str, const HR20 &m, uint8_t day);
+void append_event(String &s, const Event &ev);
 
 } // namespace json
 } // namespace hr20

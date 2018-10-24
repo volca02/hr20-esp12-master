@@ -23,7 +23,7 @@ namespace hr20 {
 
 EventLog eventLog;
 
-ICACHE_FLASH_ATTR const char *err_to_str(EventCode err) {
+ICACHE_FLASH_ATTR const char *event_to_str(EventCode err) {
 #define HANDLE(CODE) case CODE: return #CODE;
     switch (err) {
         // TODO: All event codes

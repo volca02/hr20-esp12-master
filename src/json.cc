@@ -20,6 +20,8 @@
 #include "util.h"
 #include "protocol.h"
 #include "model.h"
+#include "error.h"
+#include "eventlog.h"
 #include "json.h"
 
 namespace hr20 {
@@ -68,6 +70,27 @@ ICACHE_FLASH_ATTR void append_timer_day(String &str, const HR20 &m, uint8_t day)
         json::str(str, cvt::Simple::to_str(remote.mode()));
     }
 }
+
+void append_event(String &str, const Event &ev) {
+    json::Object obj(str);
+
+    // attributes follow.
+    json::kv_raw(obj, "type",  cvt::Simple::to_str((uint8_t)ev.type));
+    switch (ev.type) {
+    case EventType::EVENT:
+        json::kv_str(
+            obj, "name", event_to_str(static_cast<EventCode>(ev.code)));
+        break;
+    case EventType::ERROR:
+        json::kv_str(obj, "name", err_to_str(static_cast<ErrorCode>(ev.code)));
+        break;
+    default:
+        break;
+    }
+    json::kv_raw(obj, "value", cvt::Simple::to_str(ev.value));
+    json::kv_raw(obj, "time",  cvt::Simple::to_str(ev.time));
+}
+
 
 } // namespace json
 } // namespace hr20
