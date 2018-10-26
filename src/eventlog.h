@@ -91,7 +91,7 @@ struct EventLog {
         }
 
         const_iterator &operator++() {
-            ++pos;
+            --pos;
             return *this;
         }
 
@@ -100,11 +100,11 @@ struct EventLog {
     };
 
     const_iterator begin() const {
-        return {*this, pos};
+        return {*this, (pos + EVENT_LOG_LEN - 1) % EVENT_LOG_LEN};
     }
 
     const_iterator end() const {
-        uint16_t endpos = (pos + EVENT_LOG_LEN - 1) % EVENT_LOG_LEN;
+        uint16_t endpos = pos;
         return {*this, endpos};
     }
 

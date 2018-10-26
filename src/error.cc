@@ -80,5 +80,7 @@ void ICACHE_FLASH_ATTR report_error(ErrorCode err, int val) {
     Serial.print(val);
     Serial.println("!)");
 
+    eventLog.append(EventType::ERROR, err, val);
+}
 
 } // namespace hr20

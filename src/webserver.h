@@ -85,7 +85,7 @@ struct WebServer {
         } // closes the curly brace
 
         // compose a json list of all visible clients
-        server.send(200, "application/javascript", result);
+        server.send(200, "application/json", result);
     }
 
     ICACHE_FLASH_ATTR void handle_timer() {
@@ -123,12 +123,15 @@ struct WebServer {
         }
 
         // compose a json list of all visible clients
-        server.send(200, "application/javascript", result);
+        server.send(200, "application/json", result);
     }
 
     ICACHE_FLASH_ATTR void handle_events() {
         String result;
 
+        auto soffset = server.arg("offset");
+        unsigned offset   = std::max(0L, soffset.toInt());
+        unsigned counter  = MAX_JSON_EVENTS;
         {
             json::Object main(result);
 
@@ -137,6 +140,15 @@ struct WebServer {
 
             // iterate all clients
             for (const auto &event : eventLog) {
+                if (offset != 0) {
+                    --offset;
+                    continue;
+                }
+
+                if (!counter) break;
+                --counter;
+
+                // skip empty events
                 if (event.time == 0) continue;
 
                 // a comma is inserted unless this is first element
@@ -149,7 +161,7 @@ struct WebServer {
         } // closes the curly brace
 
         // compose a json list of all visible clients
-        server.send(200, "application/javascript", result);
+        server.send(200, "application/json", result);
     }
 
 

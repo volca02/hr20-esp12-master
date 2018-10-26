@@ -101,7 +101,7 @@ struct Protocol {
         // verification failed? return
         if (!ver) {
             // bad packet might get special handling later on...
-            ERR(PROTO_BAD_CMAC);
+            ERR_ARG(PROTO_BAD_CMAC, packet.peek());
             on_failed_verify();
             return;
         }
