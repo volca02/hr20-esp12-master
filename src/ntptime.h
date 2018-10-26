@@ -29,9 +29,7 @@
 
 #include "debug.h"
 #include "error.h"
-
-// every 4 minutes
-#define NTP_UPDATE_SECS (4 * 60 * 1000)
+#include "config.h"
 
 namespace hr20 {
 namespace ntptime {
@@ -50,7 +48,6 @@ struct NTPTime {
     TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     //Central European Summer Time
     TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       //Central European Standard Time
     Timezone tz;
-    bool timeInSync = false;
 #endif
 
 
@@ -66,16 +63,17 @@ struct NTPTime {
     void begin() {
 #ifdef NTP_CLIENT
         timeClient.begin();
-        timeInSync = timeClient.update();
+        // initial update
+        timeClient.update();
 #endif
     }
 
     bool update(bool can_update) {
 #ifdef NTP_CLIENT
-        if (can_update || !timeInSync) {
-            timeInSync = timeClient.update();
-            if (!timeInSync) ERR(NTP_CANNOT_SYNC);
-            return timeInSync;
+        if (can_update) {
+            bool synced = timeClient.update();
+            if (!synced) ERR(NTP_CANNOT_SYNC);
+            return synced;
         }
 #endif
         return false;

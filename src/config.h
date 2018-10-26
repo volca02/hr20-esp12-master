@@ -100,4 +100,8 @@ constexpr const uint16_t EVENT_LOG_LEN = 256;
 // Count of events per event request
 constexpr const uint16_t MAX_JSON_EVENTS = 10;
 
+// every 4 minutes NTP is updated
+constexpr const int NTP_UPDATE_SECS = (4 * 60 * 1000);
+
+
 } // namespace hr20
