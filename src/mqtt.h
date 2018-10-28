@@ -174,6 +174,8 @@ struct Path {
     // UGLY INEFFECTIVE STRING APPEND FOLLOWS
     ICACHE_FLASH_ATTR String compose() const {
         String rv;
+        // this should be more than enough for all the possible values
+        rv.reserve(1 + strlen(prefix) + 1 + 2 + 14 + 1 + 1 + 1 + 1 + 4);
         rv += SEPARATOR;
         rv += prefix;
         rv += SEPARATOR;
@@ -594,6 +596,7 @@ struct MQTTPublisher {
         STATE(9): {
             p.topic = mqtt::STATE;
             String json_state;
+            json_state.reserve(140); // This is roughly one instance of the json
             json::append_client_attr(json_state, *hr);
             publish(p, json_state);
             NEXT_MIN_STATE;
@@ -706,9 +709,7 @@ struct MQTTPublisher {
         // conversion went sideways
         if (!ok) {
             ERR_ARG(MQTT_INVALID_TOPIC_VALUE, p.topic);
-#ifdef VERBOSE
-            DBG("(MQ ERR %d %d %s)", p.addr, p.topic, payload);
-#endif
+            DBG("(MQ ERR %d %d %s)", p.addr, p.topic, val.c_str());
         }
 
 #ifdef VERBOSE

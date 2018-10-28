@@ -65,6 +65,8 @@ struct WebServer {
 
     ICACHE_FLASH_ATTR void handle_list() {
         String result;
+        // 5 is estimated HR count used. Optimizing for common cases
+        result.reserve(140 * 5);
 
         {
             json::Object main(result);
@@ -111,6 +113,8 @@ struct WebServer {
 
         // okay we have a valid client
         String result;
+        // 32 is ~ the one timer size
+        result.reserve(32 * 8 * 8); // 2k buffer right here right here
 
         { // intentional brace to close the json before we send it
             json::Object obj(result);
