@@ -39,8 +39,8 @@
 #endif
 
 hr20::Config config;
-hr20::ntptime::NTPTime time;
-hr20::HR20Master master{config, time};
+hr20::ntptime::NTPTime ntptime;
+hr20::HR20Master master{config, ntptime};
 int last_int = 1;
 
 #ifdef WEB_SERVER
@@ -68,7 +68,7 @@ void setup(void) {
     // set watchdog to 2 seconds.
     ESP.wdtEnable(2000);
 
-    time.begin();
+    ntptime.begin();
     master.begin();
 
     // TODO: this is perhaps useful for something (wifi, ntp) but not sure
@@ -90,17 +90,17 @@ void setup(void) {
 }
 
 void loop(void) {
-    time_t now = time.localTime();
+    time_t now = ntptime.localTime();
 
     hr20::eventLog.loop(now);
 
     // feed the watchdog...
     ESP.wdtFeed();
 
-    bool changed_time = time.update(master.can_update_ntp());
+    bool changed_time = ntptime.update(master.can_update_ntp());
 
     // re-read local time now that we re-set time.
-    if (changed_time) now = time.localTime();
+    if (changed_time) now = ntptime.localTime();
 
     bool __attribute__((unused)) sec_pass = master.update(changed_time, now);
 
