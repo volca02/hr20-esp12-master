@@ -58,6 +58,7 @@ enum ErrorCode {
     // in master, but logically protocol thing
     PROTO_PACKET_TOO_LONG,
     PROTO_EMPTY_PACKET,
+    PROTO_TOO_MANY_CLIENTS,
 
     // ========== RFM ==========
     // RFM12B::begin called more than once!?

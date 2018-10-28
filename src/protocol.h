@@ -133,7 +133,7 @@ struct Protocol {
     // call this in the right timespot (time to spare) to prepare commands to be sent to clients
     void ICACHE_FLASH_ATTR fill_send_queues() {
         DBG("(QUEUE)");
-        for (unsigned i = 0; i < MAX_HR_COUNT; ++i) {
+        for (unsigned i = 0; i < MAX_HR_ADDR; ++i) {
             HR20 *hr = model[i];
 
             if (!hr) continue; // whatever
@@ -223,9 +223,12 @@ protected:
         // sending device's address
         uint8_t addr = packet.pop();
 
-        auto hr = model[addr];
+        auto hr = model.prepare_client(addr);
+
         // the packet is valid, we can set last-contact time
-        if (hr) hr->last_contact = rd_time;
+        if (!hr) return false;
+
+        hr->last_contact = rd_time;
 
         // eat up the MAC, it's already verified
         packet.trim(4);
@@ -628,7 +631,7 @@ protected:
 
         // only fill force flags on :30
         if (rtc.ss == 30) {
-            for (uint8_t a = 0; a < MAX_HR_COUNT; ++a) {
+            for (uint8_t a = 0; a < MAX_HR_ADDR; ++a) {
                 auto *hr = model[a];
                 if (!hr) continue;
                 if (hr->last_contact == 0) continue;

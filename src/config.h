@@ -74,8 +74,10 @@ constexpr const int8_t RESEND_CYCLES = 2;
 // Max. number of timers queued per one packet exchange
 constexpr const int8_t MAX_QUEUE_TIMERS = 8;
 
-// Max. count of HR clients (and a max addr)
-constexpr const uint8_t MAX_HR_COUNT = 29;
+// Max. count of HR clients
+constexpr const uint8_t MAX_HR_COUNT = 8;
+// Max. address (first invalid address, to be precise)
+constexpr const uint8_t MAX_HR_ADDR  = 30;
 
 // Max. count of HR clients (and a max addr)
 #define c2temp(c) (c*2)
@@ -95,7 +97,7 @@ constexpr const bool MQTT_RETAIN = true;
 constexpr const time_t MQTT_RECONNECT_TIME = 10;
 
 // Length of a log ring buffer (last N events)
-constexpr const uint16_t EVENT_LOG_LEN = 256;
+constexpr const uint16_t EVENT_LOG_LEN = 64;
 
 // Count of events per event request
 constexpr const uint16_t MAX_JSON_EVENTS = 10;

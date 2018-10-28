@@ -109,19 +109,52 @@ struct HR20 {
 
 // Holds all clients in one array
 struct Model {
-    Model() {};
+    Model() : index() {};
 
-    HR20 * ICACHE_FLASH_ATTR operator[](uint8_t idx) {
-        if (idx >= MAX_HR_COUNT) {
+    ICACHE_FLASH_ATTR HR20 * operator[](uint8_t addr) {
+        if (addr >= MAX_HR_ADDR) {
             ERR(PROTO_BAD_CLIENT_ADDR);
             return nullptr;
         }
-        return &clients[idx];
+
+        auto slot = index[addr];
+
+        // do we have the client?
+        if (slot > 0) {
+            return &clients[slot - 1];
+        }
+
+        return nullptr;
+    }
+
+    // called in the discovery section, guarantees a slot.
+    ICACHE_FLASH_ATTR HR20 *prepare_client(uint8_t addr) {
+        if (addr >= MAX_HR_ADDR) {
+            ERR(PROTO_BAD_CLIENT_ADDR);
+            return nullptr;
+        }
+
+        auto slot = index[addr];
+        // do we have the client?
+        if (slot > 0) {
+            return &clients[slot - 1];
+        }
+
+        // allocate new slot
+        if (cidx < MAX_HR_COUNT) {
+            index[addr] = ++cidx;
+            return &clients[cidx - 1];
+        }
+
+        ERR(PROTO_TOO_MANY_CLIENTS);
+        return nullptr;
     }
 
 protected:
     Model(const Model &) = delete;
 
+    uint8_t index[MAX_HR_ADDR];
+    uint8_t cidx = 0;
     HR20 clients[MAX_HR_COUNT];
 };
 

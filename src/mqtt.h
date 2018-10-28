@@ -326,7 +326,7 @@ struct MQTTPublisher {
           wifiClient(),
           client(wifiClient)
     {
-        for (uint8_t i = 0; i < MAX_HR_COUNT; ++i) states[i] = 0;
+        for (uint8_t i = 0; i < MAX_HR_ADDR; ++i) states[i] = 0;
     }
 
     ICACHE_FLASH_ATTR void begin() {
@@ -398,7 +398,7 @@ struct MQTTPublisher {
         ++addr;
 
         // wraparound
-        if (addr >= MAX_HR_COUNT) addr = 0;
+        if (addr >= MAX_HR_ADDR) addr = 0;
 
         // reset the major/minor state indicators
         state_maj = STM_FREQ;
@@ -721,7 +721,7 @@ struct MQTTPublisher {
     WiFiClient wifiClient;
     /// seriously, const correctness anyone? PubSubClient does not have single const method...
     mutable PubSubClient client;
-    uint32_t states[MAX_HR_COUNT];
+    uint32_t states[MAX_HR_ADDR];
 
     // Publisher state machine
     uint8_t addr = 0;

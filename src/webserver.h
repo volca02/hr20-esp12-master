@@ -39,7 +39,7 @@ struct WebServer {
                   [&](){
                       String status = "Valves + temperatures\n\n";
                       unsigned cnt = 0;
-                      for (unsigned i = 0; i < hr20::MAX_HR_COUNT; ++i) {
+                      for (unsigned i = 0; i < hr20::MAX_HR_ADDR; ++i) {
                           auto m = master.model[i];
 
                           if (!m) continue;
@@ -70,7 +70,7 @@ struct WebServer {
             json::Object main(result);
 
             // iterate all clients
-            for (unsigned i = 0; i < hr20::MAX_HR_COUNT; ++i) {
+            for (unsigned i = 0; i < hr20::MAX_HR_ADDR; ++i) {
                 auto m = master.model[i];
 
                 if (!m) continue;

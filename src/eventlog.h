@@ -30,7 +30,7 @@ namespace hr20 {
 #define EVENT_ARG(CODE, VAL) \
     do { eventLog.append(EventType::EVENT, CODE, VAL); } while (0)
 
-enum class EventType {
+enum class EventType : uint8_t {
     EVENT = 1,
     ERROR = 2
 };
@@ -47,9 +47,9 @@ ICACHE_FLASH_ATTR const char * event_to_str(EventCode err);
 // Event type
 struct Event {
     EventType type;
-    int code    = 0; // code is severity dependent, either EventCode or ErrorCode
-    int value   = 0;
-    time_t time = 0;
+    uint8_t  code  = 0; // code is severity dependent, either EventCode or ErrorCode
+    uint16_t value = 0;
+    time_t   time  = 0;
 };
 
 // Singleton event log ring buffer

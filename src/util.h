@@ -111,7 +111,7 @@ struct ForceFlags {
      * @param fat_comms This set to true means we need intense comm. when possible
      */
     ICACHE_FLASH_ATTR void push(uint8_t addr, bool fat_comms) {
-        if (addr >= MAX_HR_COUNT) return;
+        if (addr >= MAX_HR_ADDR) return;
 
         if (ctr < 2) {
             small[ctr] = addr;
