@@ -18,6 +18,7 @@
  */
 
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 
 #include "config.h"
 #include "wifi.h"
@@ -56,7 +57,6 @@ hr20::mqtt::MQTTPublisher publisher(config, master);
 hr20::Display display(master);
 #endif
 
-
 void setup(void) {
     Serial.begin(38400);
 
@@ -75,24 +75,31 @@ void setup(void) {
     // TODO: this is perhaps useful for something (wifi, ntp) but not sure
     randomSeed(micros());
 
-    attachInterrupt (RESET_BUTTON_PIN, buttonChange, CHANGE);
+    attachInterrupt(RESET_BUTTON_PIN, buttonChange, CHANGE);
+
+    ArduinoOTA.begin();
 
 #ifdef MQTT
     // attaches the path's prefix to the setup value
     hr20::mqtt::Path::begin(config.mqtt_topic_prefix);
     publisher.begin();
-#endif  
+#endif
 
 #ifdef HR20_DISPLAY
     display.begin();
 #endif
 
 #ifdef WEB_SERVER
+    // needed for the webserver
+    SPIFFS.begin();
     webserver.begin();
 #endif
 }
 
 void loop(void) {
+    // handle OTA updates as appropriate
+    ArduinoOTA.handle();
+
     time_t now = ntptime.localTime();
 
     hr20::eventLog.loop(now);
@@ -106,7 +113,7 @@ void loop(void) {
     if (changed_time) now = ntptime.localTime();
 
     bool __attribute__((unused)) sec_pass = master.update(changed_time, now);
-    
+
     // sec_pass = second passed (once every second)
 
     handleButton();

@@ -21,6 +21,7 @@
 
 #include <Arduino.h>
 #include <ESP8266WebServer.h>
+#include <FS.h>
 
 #include "master.h"
 #include "json.h"
@@ -34,32 +35,7 @@ struct WebServer {
         server.on("/list", [&]() { handle_list(); } );
         server.on("/timer", [&]() { handle_timer(); } );
         server.on("/events", [&]() { handle_events(); } );
-
-        server.on("/",
-                  [&](){
-                      String status = "Valves + temperatures\n\n";
-                      unsigned cnt = 0;
-                      for (unsigned i = 0; i < hr20::MAX_HR_ADDR; ++i) {
-                          auto m = master.model[i];
-
-                          if (!m) continue;
-                          if (m->last_contact == 0) continue;
-
-
-                          ++cnt;
-                          status += "Valve ";
-                          status += String(i, HEX);
-                          status += " - ";
-                          status += String(float(m->temp_avg.get_remote()) / 100.0f, 2);
-                          status += String('\n');
-                      }
-
-                      status += String('\n');
-                      status += String(cnt);
-                      status += " total";
-
-                      server.send(200, "text/plain", status);
-                  });
+        server.serveStatic("/", SPIFFS, "/index.html");
         server.begin();
     }
 
