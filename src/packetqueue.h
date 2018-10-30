@@ -25,6 +25,7 @@
 #include "queue.h"
 #include "debug.h"
 #include "error.h"
+#include "eventlog.h"
 
 namespace hr20 {
 
@@ -179,6 +180,14 @@ struct PacketQ {
                 hex_dump(" DTA", it.packet.data(), it.packet.size());
                 hex_dump("CMAC", cmac.data(), cmac.size());
 #endif
+                if (addr == SYNC_ADDR) {
+#ifdef DEBUG
+                    // only log sync packets in debug mode
+                    EVENT(PROTO_PACKET_SYNC);
+#endif
+                } else {
+                    EVENT_ARG(PROTO_PACKET_SENDING, addr);
+                }
                 return true;
             }
         }

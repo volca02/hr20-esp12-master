@@ -310,6 +310,11 @@ struct Path {
 
     ICACHE_FLASH_ATTR bool valid() { return addr != 0; }
 
+    // compressed topic code for debugging (addr 5 bits, topic 4 bits, timer topic 2 bits)
+    ICACHE_FLASH_ATTR uint16_t as_uint() const {
+        return addr | ((uint16_t)topic << 5) | ((uint16_t)timer_topic << 9);
+    }
+
     // client ID. 0 means invalid path!
     uint8_t addr = 0;
     uint8_t day  = 0;
@@ -415,19 +420,22 @@ struct MQTTPublisher {
 
     template <typename T, typename CvT>
     ICACHE_FLASH_ATTR void publish(const String &path,
-                                   CachedValue<T, CvT> &val) const
+                                   CachedValue<T, CvT> &val,
+                                   uint16_t hint) const
     {
         if (val.published() || !val.remote_valid())
             return;
 
         auto vstr = val.to_str();
 
-        if (!client.publish(path.c_str(),
-                            reinterpret_cast<const uint8_t *>(vstr.c_str()),
-                            vstr.length(),
-                            /*retained*/ MQTT_RETAIN))
+        if (client.publish(path.c_str(),
+                           reinterpret_cast<const uint8_t *>(vstr.c_str()),
+                           vstr.length(),
+                           /*retained*/ MQTT_RETAIN))
         {
-            ERR(MQTT_CANT_PUBLISH);
+            EVENT_ARG(MQTT_PUBLISH, hint);
+        } else {
+            ERR_ARG(MQTT_CANT_PUBLISH, hint);
         }
 
         val.published() = true;
@@ -438,7 +446,7 @@ struct MQTTPublisher {
                                    CachedValue<T, CvT> &val) const
     {
         String path = p.compose();
-        publish(path.c_str(), val);
+        publish(path.c_str(), val, p.as_uint());
     }
 
     // simple publish for non-cached values (i.e. lastContact)
@@ -447,23 +455,27 @@ struct MQTTPublisher {
         String sv(val);
         String path = p.compose();
 
-        if (!client.publish(path.c_str(),
+        if (client.publish(path.c_str(),
                        reinterpret_cast<const uint8_t *>(sv.c_str()),
                        sv.length(),
                        /*retained*/ MQTT_RETAIN))
         {
-            ERR(MQTT_CANT_PUBLISH);
+            EVENT_ARG(MQTT_PUBLISH, p.as_uint());
+        } else {
+            ERR_ARG(MQTT_CANT_PUBLISH, p.as_uint());
         }
     }
 
     ICACHE_FLASH_ATTR void publish(const Path &p, const String &val) const {
         String path = p.compose();
-        if (!client.publish(path.c_str(),
+        if (client.publish(path.c_str(),
                             reinterpret_cast<const uint8_t *>(val.c_str()),
                             val.length(),
                             /*retained*/ MQTT_RETAIN))
         {
-            ERR(MQTT_CANT_PUBLISH);
+            EVENT_ARG(MQTT_PUBLISH, p.as_uint());
+        } else {
+            ERR_ARG(MQTT_CANT_PUBLISH, p.as_uint());
         }
     }
 
@@ -473,7 +485,7 @@ struct MQTTPublisher {
     {
         String path = p.compose();
 
-        publish(path, val);
+        publish(path, val, p.as_uint());
 
         if (!val.subscribed()) {
             client.subscribe(path.c_str());
@@ -514,7 +526,9 @@ struct MQTTPublisher {
 
 
             if (!err || !err1) {
-                ERR(MQTT_CANT_PUBLISH);
+                ERR_ARG(MQTT_CANT_PUBLISH, p.as_uint());
+            } else {
+                EVENT_ARG(MQTT_PUBLISH, p.as_uint());
             }
 
             val.published() = true;
@@ -675,7 +689,7 @@ struct MQTTPublisher {
             return;
         }
 
-        bool ok = true; // either bad topic or conversion went ok
+        bool ok = true; // false indicates an invalid value was encountered
         // Arduino string does NOT have char*+len concat/ctor...
         StringBuffer val{payload, length};
 
@@ -703,13 +717,17 @@ struct MQTTPublisher {
             }
             break;
         }
-        default: ERR(MQTT_INVALID_TOPIC);
+        default: ERR(MQTT_INVALID_TOPIC); return;
         }
+
+        EVENT_ARG(MQTT_CALLBACK, p.as_uint());
 
         // conversion went sideways
         if (!ok) {
-            ERR_ARG(MQTT_INVALID_TOPIC_VALUE, p.topic);
+            ERR_ARG(MQTT_INVALID_TOPIC_VALUE, p.as_uint());
+#ifdef VERBOSE
             DBG("(MQ ERR %d %d %s)", p.addr, p.topic, val.c_str());
+#endif
         }
 
 #ifdef VERBOSE
