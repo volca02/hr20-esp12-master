@@ -25,6 +25,7 @@
 #include "debug.h"
 #include "master.h"
 #include "eventlog.h"
+#include "button.h"
 
 #ifdef WEB_SERVER
 #include "webserver.h"
@@ -74,11 +75,13 @@ void setup(void) {
     // TODO: this is perhaps useful for something (wifi, ntp) but not sure
     randomSeed(micros());
 
+    attachInterrupt (RESET_BUTTON_PIN, buttonChange, CHANGE);
+
 #ifdef MQTT
     // attaches the path's prefix to the setup value
     hr20::mqtt::Path::begin(config.mqtt_topic_prefix);
     publisher.begin();
-#endif
+#endif  
 
 #ifdef HR20_DISPLAY
     display.begin();
@@ -103,8 +106,10 @@ void loop(void) {
     if (changed_time) now = ntptime.localTime();
 
     bool __attribute__((unused)) sec_pass = master.update(changed_time, now);
-
+    
     // sec_pass = second passed (once every second)
+
+    handleButton();
 
 #ifdef MQTT
     // only update mqtt if we have a time to do so, as controlled by master

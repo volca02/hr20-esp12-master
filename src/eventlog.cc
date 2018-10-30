@@ -26,7 +26,12 @@ EventLog eventLog;
 ICACHE_FLASH_ATTR const char *event_to_str(EventCode err) {
 #define HANDLE(CODE) case CODE: return #CODE;
     switch (err) {
-        // TODO: All event codes
+        HANDLE(PROTO_PACKET_RECEIVED)
+        HANDLE(PROTO_PACKET_SENDING)
+        HANDLE(PROTO_PACKET_SYNC)
+        HANDLE(PROTO_HANDLED_OPS)
+        HANDLE(MQTT_PUBLISH)
+        HANDLE(MQTT_CALLBACK)
     default:
         return "INVALID_EVENT_CODE";
     }

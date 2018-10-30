@@ -37,9 +37,29 @@ enum class EventType : uint8_t {
 
 // enumeration of possible EVENT type events
 enum EventCode {
-    INVALID_EVENT_CODE = 0
+    INVALID_EVENT_CODE = 0,
 
-    // TODO: more codes
+    // protocol. sending/receiving of packets
+    PROTO_PACKET_RECEIVED = 1, // received packet, arg is addr
+    PROTO_PACKET_SENDING  = 2, // packet was queued for sending, arg is addr
+    PROTO_PACKET_SYNC     = 3, // sync is being sent
+    PROTO_HANDLED_OPS     = 4, // handled bitmap of operations on incoming packet
+
+    // mqtt. publishes/subscription callbacks
+    MQTT_PUBLISH          = 50, // a publish was done
+    MQTT_CALLBACK         = 51, // mqtt callback was called
+};
+
+// bitmap of received command responses in the received packet
+enum ProtoCommand {
+    PROTO_CMD_VER    = 1,
+    PROTO_CMD_TMP    = 2,
+    PROTO_CMD_DBG    = 4,
+    PROTO_CMD_WTCH   = 8,
+    PROTO_CMD_TMR    = 16,
+    PROTO_CMD_EEPROM = 32,
+    PROTO_CMD_LOCK   = 64,
+    PROTO_CMD_REBOOT = 128
 };
 
 ICACHE_FLASH_ATTR const char * event_to_str(EventCode err);

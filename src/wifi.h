@@ -23,6 +23,6 @@
 
 namespace hr20 {
 
-void setupWifi(Config &config, bool cfgLoaded);
-
+    void setupWifi(Config &config, bool cfgLoaded);
+    void resetWifi();
 } // namespace hr20

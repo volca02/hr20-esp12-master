@@ -64,7 +64,6 @@ struct Protocol {
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
         hex_dump("PKT", packet.data(), packet.size());
 #endif
-
         // length byte in packet contains the length byte itself (thus -1)
         size_t data_size = (packet[0] & 0x7f) - 1;
         bool   isSync    = (packet[0] & 0x80) != 0;
@@ -105,6 +104,9 @@ struct Protocol {
             on_failed_verify();
             return;
         }
+
+        // log that we received a packet from client with address
+        EVENT_ARG(PROTO_PACKET_RECEIVED, packet[1]);
 
         if (isSync) {
             process_sync_packet(packet);
@@ -236,6 +238,9 @@ protected:
         // indicates error in packet processing when nonzero (i.e. non OK)
         uint8_t err = OK;
 
+        // bitmap of encountered events
+        uint16_t bitmap = 0;
+
         while (!packet.empty()) {
             // the first byte here is command
             auto c = packet.pop();
@@ -249,24 +254,32 @@ protected:
 */
             switch (c) {
             case 'V':
+                bitmap |= PROTO_CMD_VER;
                 err |= on_version(addr, packet); break;
                 // these all respond with debug response
             case 'A': // Set temperatures response (debug)
+                bitmap |= PROTO_CMD_TMP;
                 err |= on_temperature(addr, packet); break;
             case 'D': // Debug command response
             case 'M': // Mode command response
+                bitmap |= PROTO_CMD_DBG;
                 err |= on_debug(addr, packet); break;
             case 'T': // Watch command response (reads watched variables from PGM)
+                bitmap |= PROTO_CMD_WTCH;
                 err |= on_watch(addr, packet); break;
             case 'R': // Read timers
             case 'W': // Write timers
+                bitmap |= PROTO_CMD_TMR;
                 err |= on_timers(addr, packet); break;
             case 'G': // get eeprom
             case 'S': // set eeprom
+                bitmap |= PROTO_CMD_EEPROM;
                 err |= on_eeprom(addr, packet); break;
             case 'L': // locked menu?
+                bitmap |= PROTO_CMD_LOCK;
                 err |= on_menu_lock(addr, packet); break;
             case 'B':
+                bitmap |= PROTO_CMD_REBOOT;
                 err |= on_reboot(addr, packet);
             default:
                 ERR(PROTO_UNKNOWN_SEQUENCE);
@@ -277,6 +290,8 @@ protected:
                 return false;
             }
         }
+
+        EVENT_ARG(PROTO_HANDLED_OPS, bitmap);
 
         // inform send queue that we can send data for addr if we have any
         // we limit to one packet to each client every minute by this logic

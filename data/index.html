@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+
+<style>
+body {
+    background: #20262E;
+    padding: 20px;
+    font-family: Helvetica;
+}
+
+#error {
+    background: #a00;
+    color: #fff;
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 15px;
+    text-align: left;
+    font-size: 12px;
+    font-family: monospace;
+    visibility: collapse;
+}
+
+#clients {
+    width: 550px;
+    float: left;
+    color: #aaa;
+}
+
+#events {
+    float: left;
+    width: 550px;
+    color: #aaa;
+}
+
+#more {
+    background: #333;
+    color: #6a6;
+    border: 1px solid;
+    border-color: #111;
+    border-radius: 3px;
+    width: 200px;
+    padding: 2px;
+    font-family: monospace;
+    text-align: center;
+}
+
+.client {
+    background: #333;
+    color: #aaa;
+    border-radius: 4px;
+    padding: 10px;
+    height: 18px;
+    font-size: 15px;
+    text-align: left;
+    font-size: 12px;
+    font-family: monospace;
+    transition: all 0.2s;
+    margin: 10px;
+    width: 500px;
+}
+
+.client:hover {
+    background: #444;
+}
+
+.client_address {
+    color: #264;
+    float: left;
+    width: 30px;
+}
+
+.client_temp {
+    float: left;
+    width: 80px;
+}
+
+.client_mode {
+    float: left;
+    width: 40px;
+}
+
+.client_error {
+    float: left;
+    width: 20px;
+    color: #B22;
+}
+
+.client_time {
+    float: right;
+    font-size: 8px;
+}
+
+.event {
+    background: #111;
+    color: #aaa;
+    font-family: monospace;
+    border: 1px solid;
+    border-color: #111;
+    border-radius: 0px;
+    padding: 2px;
+    height: 16px;
+    font-size: 15px;
+    text-align: left;
+    transition: all 0.2s;
+    margin: 1px;
+}
+
+.event:hover {
+    border-color: #666;
+}
+
+.error
+{
+    background: #300;
+}
+
+
+.event_type {
+    float: left;
+    width: 20px;
+    font-size: 12px;
+}
+
+.event_time {
+    float: left;
+    width: 160px;
+    font-size: 12px;
+}
+
+.event_name {
+    float: left;
+    width: 250px;
+    font-size: 12px;
+}
+
+.event_value {
+    float: left;
+    width: 40px;
+    font-size: 12px;
+}
+
+</style>
+
+<script>
+
+// SET THIS AS APPROPRIATE TO DEBUG REMOTELY
+PREFIX = "http://192.168.1.136/";
+
+// zero-pad to 0-4 chars
+function zpad(num, zrs) { return ("0000" + num).substr(-zrs,zrs); }
+
+Date.prototype.formatCustom = function(){
+    return    zpad(this.getFullYear(),4) +
+        "/" + zpad(this.getMonth() + 1,2) +
+        "/" + zpad(this.getDate(),2) +
+        " " + zpad(this.getHours(),2) +
+        ":" + zpad(this.getMinutes(),2) +
+        ":" + zpad(this.getSeconds(),2);
+}
+
+function append_clients(data) {
+    console.log(data);
+    $.each(data, function(key, value) {
+        console.log(key);
+        date = new Date(value["last_seen"] * 1000)
+        $('#clients').append(
+            $('<div/>')
+                .attr("class", "client")
+                .append($("<div/>", {class:"client_address"})
+                        .text(key))
+                .append($("<div/>", {class:"client_temp"}).text(value["temp"] + "\u00B0C"))
+                .append($("<div/>", {class:"client_temp"}).text("WTD " + value["temp_wtd"] + "\u00B0C"))
+                .append($("<div/>", {class:"client_mode"}).text(value["auto"] ? "AUTO" : "MANU"))
+                .append($("<div/>", {class:"client_mode"}).text(value["lock"] ? "\uD83D\uDD12":  "\uD83D\uDD13"))
+                .append($("<div/>", {class:"client_error"}).text(value["error"]))
+                .append($("<div/>", {class:"client_time"}).text(date.formatCustom()))
+        );
+    });
+}
+
+function append_events(data) {
+    console.log(data);
+    $.each(data["events"], function(index, value) {
+        date = new Date(value["time"]*1000);
+
+        style = "event";
+        if (value["type"] == 2) // error
+            style = "event error";
+
+        $('#events').append(
+            $('<div/>')
+                .attr("class", style)
+                .append($("<div/>", {class:"event_type"}).text(value["type"] == 2 ? "\uD83D\uDED1" : "\u2192"))
+                .append($("<div/>", {class:"event_time"}).text(date.formatCustom()))
+                // errors get exclamation sign
+                .append($("<div/>", {class:"event_name"}).text(value["name"]))
+                .append($("<div/>", {class:"event_value"}).text(value["value"]))
+        );
+    });
+}
+
+var event_list_offset = 0;
+
+function stream_events() {
+    $.ajax(PREFIX + "events?offset=" + event_list_offset, {
+      success: function(data) {
+          // remove old #more button
+          $('#more').remove();
+          append_events(data);
+
+          if (Object(data["events"]).length == 10) {
+              event_list_offset += 10;
+              $('#events').append('<div id="more">load more</div>');
+              $('#more').click(function () {
+                  stream_events();
+              });
+          }
+      },
+      error: function() {
+          $('#error').css('visibility', 'visible').append("Cannot list events</br>");
+      }
+    });
+
+}
+
+$(document).ready(function(){
+    $.ajax(PREFIX + "list", {
+            success: function(data) {
+                append_clients(data);
+            },
+            error: function() {
+                $('#error').css('visibility', 'visible').append("Cannot list clients</br>");
+            }
+        });
+
+    stream_events(0);
+});
+
+</script>
+</head>
+<body>
+<div id="error"></div>
+<div style="width:100%">
+<div id="clients"><h2>Clients</h2></div>
+<div id="events"><h2>Events</h2>
+</div>
+</div>
+</body>
+</html>
