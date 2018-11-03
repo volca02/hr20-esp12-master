@@ -30,6 +30,7 @@
 #include "debug.h"
 #include "error.h"
 #include "config.h"
+#include "eventlog.h"
 
 namespace hr20 {
 namespace ntptime {
@@ -50,7 +51,6 @@ struct NTPTime {
     Timezone tz;
 #endif
 
-
     NTPTime()
 #ifdef NTP_CLIENT
         : ntpUDP()
@@ -66,17 +66,26 @@ struct NTPTime {
         // initial update
         timeClient.update();
 #endif
+
     }
 
     bool update(bool can_update) {
 #ifdef NTP_CLIENT
         if (can_update) {
             bool synced = timeClient.update();
-            if (!synced) ERR(NTP_CANNOT_SYNC);
+
+            if (!synced)
+                ERR(NTP_CANNOT_SYNC);
+            // TODO: EVENT(NTP_SYNCHRONIZED);
+            // that needs ntpclient
             return synced;
         }
 #endif
         return false;
+    }
+
+    time_t unixTime() {
+        return timeClient.getEpochTime();
     }
 
     time_t localTime() {

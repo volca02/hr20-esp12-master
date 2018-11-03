@@ -25,6 +25,10 @@
 
 namespace hr20 {
 
+char ICACHE_FLASH_ATTR int2hex(uint8_t v);
+int8_t ICACHE_FLASH_ATTR hex2int(char ch);
+int8_t ICACHE_FLASH_ATTR todigit(char c);
+
 /// Delays re-requests a number of skips. Used to delay re-requests/re-submits of values
 template<int8_t RETRY_SKIPS>
 struct RequestDelay {

@@ -32,7 +32,7 @@ namespace hr20 {
 // NOTE: Technically both can be 76, since the RcvPacket does not contain
 // prologue (0xaa, 0xaa, 0x2d, 0xd4 that gets eaten by the radio as sync-word)
 // that does not apply to OpenHR20 since it shares send/recv buffer in one.
-using RcvPacket = ShortQ<76>;
+using RcvPacket = ShortQ<80>;
 
 // sent packet is shorter, as we hold cmac in an isolated place
 using SndPacket = PacketQ::Packet;
@@ -58,7 +58,7 @@ struct Protocol {
 
     /// verifies incoming packet, processes it accordingly
     void ICACHE_FLASH_ATTR receive(RcvPacket &packet) {
-        rd_time = time.localTime();
+        rd_time = time.unixTime();
 
 #ifdef VERBOSE
         DBG("== Will verify_decode packet of %d bytes ==", packet.size());
@@ -280,7 +280,7 @@ protected:
                 err |= on_menu_lock(addr, packet); break;
             case 'B':
                 bitmap |= PROTO_CMD_REBOOT;
-                err |= on_reboot(addr, packet);
+                err |= on_reboot(addr, packet); break;
             default:
                 ERR(PROTO_UNKNOWN_SEQUENCE);
                 return false;

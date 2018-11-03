@@ -29,6 +29,7 @@
 #include "util.h"
 #include "wifi.h"
 #include "json.h"
+#include "str.h"
 
 namespace hr20 {
 namespace mqtt {
@@ -73,6 +74,9 @@ static unsigned    S_TIMER_LEN = 5;
 // timer subtopics
 static const char *S_TIMER_MODE = "mode";
 static const char *S_TIMER_TIME = "time";
+
+constexpr const uint8_t MAX_MQTT_PATH_LENGTH = 128;
+using PathBuffer = BufferHolder<MAX_MQTT_PATH_LENGTH>;
 
 ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     switch (topic) {
@@ -171,11 +175,9 @@ struct Path {
         : addr(addr), day(day), slot(slot), topic(t), timer_topic(st)
     {}
 
-    // UGLY INEFFECTIVE STRING APPEND FOLLOWS
-    ICACHE_FLASH_ATTR String compose() const {
-        String rv;
-        // this should be more than enough for all the possible values
-        rv.reserve(1 + strlen(prefix) + 1 + 2 + 14 + 1 + 1 + 1 + 1 + 4);
+    ICACHE_FLASH_ATTR Str compose(Buffer b) const {
+        StrMaker rv(b);
+
         rv += SEPARATOR;
         rv += prefix;
         rv += SEPARATOR;
@@ -192,7 +194,7 @@ struct Path {
             rv += timer_topic_str(timer_topic);
         }
 
-        return rv;
+        return rv.str();
     }
 
     ICACHE_FLASH_ATTR static Path parse(const char *p) {
@@ -419,19 +421,21 @@ struct MQTTPublisher {
     }
 
     template <typename T, typename CvT>
-    ICACHE_FLASH_ATTR void publish(const String &path,
+    ICACHE_FLASH_ATTR void publish(const Str &path,
                                    CachedValue<T, CvT> &val,
                                    uint16_t hint) const
     {
         if (val.published() || !val.remote_valid())
             return;
 
-        auto vstr = val.to_str();
+        cvt::ValueBuffer vb;
+        auto vstr = val.to_str(vb);
 
         if (client.publish(path.c_str(),
                            reinterpret_cast<const uint8_t *>(vstr.c_str()),
                            vstr.length(),
-                           /*retained*/ MQTT_RETAIN))
+                           // retained
+                           MQTT_RETAIN))
         {
             EVENT_ARG(MQTT_PUBLISH, hint);
         } else {
@@ -445,33 +449,19 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void publish(const Path &p,
                                    CachedValue<T, CvT> &val) const
     {
-        String path = p.compose();
+        PathBuffer pb;
+        auto path = p.compose(pb);
         publish(path.c_str(), val, p.as_uint());
     }
 
-    // simple publish for non-cached values (i.e. lastContact)
-    template<typename T>
-    ICACHE_FLASH_ATTR void publish(const Path &p, const T &val) const {
-        String sv(val);
-        String path = p.compose();
+    ICACHE_FLASH_ATTR void publish(const Path &p, const Str &val) const {
+        PathBuffer pb;
+        auto path = p.compose(pb);
 
         if (client.publish(path.c_str(),
-                       reinterpret_cast<const uint8_t *>(sv.c_str()),
-                       sv.length(),
-                       /*retained*/ MQTT_RETAIN))
-        {
-            EVENT_ARG(MQTT_PUBLISH, p.as_uint());
-        } else {
-            ERR_ARG(MQTT_CANT_PUBLISH, p.as_uint());
-        }
-    }
-
-    ICACHE_FLASH_ATTR void publish(const Path &p, const String &val) const {
-        String path = p.compose();
-        if (client.publish(path.c_str(),
-                            reinterpret_cast<const uint8_t *>(val.c_str()),
-                            val.length(),
-                            /*retained*/ MQTT_RETAIN))
+                           reinterpret_cast<const uint8_t *>(val.c_str()),
+                           val.length(),
+                           /*retained*/ MQTT_RETAIN))
         {
             EVENT_ARG(MQTT_PUBLISH, p.as_uint());
         } else {
@@ -483,9 +473,10 @@ struct MQTTPublisher {
     ICACHE_FLASH_ATTR void publish_subscribe(const Path &p,
                                              SyncedValue<T, CvT> &val) const
     {
-        String path = p.compose();
+        PathBuffer pb;
+        auto path = p.compose(pb);
 
-        publish(path, val, p.as_uint());
+        publish(path.c_str(), val, p.as_uint());
 
         if (!val.subscribed()) {
             client.subscribe(path.c_str());
@@ -496,6 +487,8 @@ struct MQTTPublisher {
     // timer publishes and subscribes two topics, so we overload for it...
     ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, TimerSlot &val) const
     {
+        PathBuffer pb;
+
         // clone paths and set the two possile endings for them
         Path mode_path{p};
         Path time_path{p};
@@ -503,23 +496,24 @@ struct MQTTPublisher {
         mode_path.timer_topic = mqtt::TIMER_MODE;
         time_path.timer_topic = mqtt::TIMER_TIME;
 
-        // format the paths to strings
-        String mode_p_str = mode_path.compose();
-        String time_p_str = time_path.compose();
-
         if (!val.published() && val.remote_valid()) {
             const auto &remote = val.get_remote();
 
-            auto mode = cvt::Simple::to_str(remote.mode());
-            auto time = cvt::TimeHHMM::to_str(remote.time());
-
+            // holds the converted value between to_str and publish
+            cvt::ValueBuffer vb;
+            auto mode = cvt::Simple::to_str(vb, remote.mode());
+            auto path = mode_path.compose(pb);
             bool err =
-                client.publish(mode_p_str.c_str(),
+                client.publish(path.c_str(),
                                reinterpret_cast<const uint8_t *>(mode.c_str()),
                                mode.length(),
                                /*retained*/ MQTT_RETAIN);
+
+            path = time_path.compose(pb);
+            // overwrites the old vb content!
+            auto time = cvt::TimeHHMM::to_str(vb, remote.time());
             bool err1 =
-                client.publish(time_p_str.c_str(),
+                client.publish(path.c_str(),
                                reinterpret_cast<const uint8_t *>(time.c_str()),
                                time.length(),
                                /*retained*/ MQTT_RETAIN);
@@ -535,8 +529,10 @@ struct MQTTPublisher {
         }
 
         if (!val.subscribed()) {
-            client.subscribe(mode_p_str.c_str());
-            client.subscribe(time_p_str.c_str());
+            auto path = mode_path.compose(pb);
+            client.subscribe(path.c_str());
+            path = time_path.compose(pb);
+            client.subscribe(path.c_str());
             val.subscribed() = true;
         }
     }
@@ -602,17 +598,21 @@ struct MQTTPublisher {
             p.topic = mqtt::ERR;
             publish(p, hr->ctl_err);
             NEXT_MIN_STATE;
-        STATE(8):
+        STATE(8): {
             p.topic = mqtt::LAST_SEEN;
-            publish(p, hr->last_contact);
+            cvt::ValueBuffer vb;
+            StrMaker sm{vb};
+            sm += hr->last_contact;
+            publish(p, sm.str());
             NEXT_MIN_STATE;
+        }
 #ifdef MQTT_JSON
         STATE(9): {
             p.topic = mqtt::STATE;
-            String json_state;
-            json_state.reserve(140); // This is roughly one instance of the json
-            json::append_client_attr(json_state, *hr);
-            publish(p, json_state);
+            BufferHolder<160> buf;
+            StrMaker sm{buf};
+            json::append_client_attr(sm, *hr);
+            publish(p, sm.str());
             NEXT_MIN_STATE;
         }
 #endif
@@ -691,7 +691,7 @@ struct MQTTPublisher {
 
         bool ok = true; // false indicates an invalid value was encountered
         // Arduino string does NOT have char*+len concat/ctor...
-        StringBuffer val{payload, length};
+        Str val{(const char *)payload, length};
 
         switch (p.topic) {
         case mqtt::REQ_TMP: ok = hr->temp_wanted.set_requested_from_str(val); break;

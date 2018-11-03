@@ -20,51 +20,63 @@
 #pragma once
 
 #include <Arduino.h>
-#include <string>
+#include "str.h"
 
+namespace hr20 {
 namespace cvt {
 
-char ICACHE_FLASH_ATTR int2hex(uint8_t v);
-int8_t ICACHE_FLASH_ATTR hex2int(char ch);
+// should be enough for all the values we use here (long int is ~20 chars)
+using ValueBuffer = BufferHolder<32>;
 
 // Simple integer converter
 struct Simple {
-    ICACHE_FLASH_ATTR static String to_str(uint8_t val) {
-        return String{(int)val};
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, uint8_t val) {
+        StrMaker sm{buf};
+        sm += val;
+        return sm.str();
     }
 
-    ICACHE_FLASH_ATTR static bool from_str(const String &dta, uint8_t &tgt) {
-        tgt = dta.toInt();
-        return tgt != 0 || dta == "0";
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, bool val) {
+        const char * rvbuf = val ? "true" : "false";
+        // construct an immutable string directly from flash mem.
+        return {rvbuf, strlen(rvbuf)};
     }
 
-    ICACHE_FLASH_ATTR static String to_str(bool val) {
-        return val ? "true" : "false";
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, uint16_t val) {
+        StrMaker sm{buf};
+        sm += val;
+        return sm.str();
     }
 
-    ICACHE_FLASH_ATTR static String to_str(uint16_t val) {
-        return String{val};
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, int val) {
+        StrMaker sm{buf};
+        sm += val;
+        return sm.str();
     }
 
-    ICACHE_FLASH_ATTR static String to_str(int val) {
-        return String{val};
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, unsigned val) {
+        StrMaker sm{buf};
+        sm += (int)val;
+        return sm.str();
     }
 
-    ICACHE_FLASH_ATTR static String to_str(unsigned val) {
-        return String{val};
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, time_t val) {
+        StrMaker sm{buf};
+        sm += (int)val;
+        return sm.str();
     }
 
-    ICACHE_FLASH_ATTR static String to_str(time_t val) {
-        return String{val};
-    }
-
-    ICACHE_FLASH_ATTR static bool from_str(const String &dta, uint16_t &tgt) {
-        tgt = dta.toInt();
-        return tgt != 0 || dta == "0";
+    ICACHE_FLASH_ATTR static bool from_str(const Str &dta, uint8_t &tgt) {
+        return dta.toInt(tgt);
     }
 
 
-    ICACHE_FLASH_ATTR static bool from_str(const String &dta, bool &tgt) {
+    ICACHE_FLASH_ATTR static bool from_str(const Str &dta, uint16_t &tgt) {
+        return dta.toInt(tgt);
+    }
+
+
+    ICACHE_FLASH_ATTR static bool from_str(const Str &dta, bool &tgt) {
         if (dta.equalsIgnoreCase("true")
             || dta.equalsIgnoreCase("on"))
         {
@@ -80,8 +92,12 @@ struct Simple {
         }
 
         // integer
-        tgt = dta.toInt() != 0;
-        return tgt || dta == "0";
+        int val;
+        if (dta.toInt(val)) {
+            tgt = val != 0;
+            return true;
+        }
+        return false;
     }
 
 };
@@ -91,13 +107,19 @@ struct Simple {
  *  Format: [X].H - H being 0 or 5, X between 5 and 30
  */
 struct TempHalfC {
-    ICACHE_FLASH_ATTR static String to_str(uint8_t temp) {
-        return String{float(temp) / 2, 1}; // 1 == decimal places
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, uint8_t temp) {
+        StrMaker sm{buf};
+        sm.append(float(temp) / 2, 1);
+        return sm.str();
     }
 
-    ICACHE_FLASH_ATTR static bool from_str(const String &val, uint8_t &tgt) {
-        tgt = val.toFloat() * 2;
-        return tgt != 0; // zero is not allowed in the value range anyway...
+    ICACHE_FLASH_ATTR static bool from_str(const Str &val, uint8_t &tgt) {
+        float f;
+        if (val.toFloat(f)) {
+            tgt = f * 2;
+            return true;
+        }
+        return false;
     }
 };
 
@@ -105,8 +127,10 @@ struct TempHalfC {
  *  Format: X.XX
  */
 struct Temp001C {
-    ICACHE_FLASH_ATTR static String to_str(uint16_t temp) {
-        return String{float(temp) / 100, 2}; // 2 == decimal places
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, uint16_t temp) {
+        StrMaker sm{buf};
+        sm.append(float(temp) / 100, 2);
+        return sm.str();
     }
 };
 
@@ -114,29 +138,31 @@ struct Temp001C {
  *  Format: X.XXX
  */
 struct Voltage0001V {
-    ICACHE_FLASH_ATTR static String to_str(uint16_t temp) {
-        return String{float(temp) / 1000, 3}; // 3 == decimal places
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, uint16_t volt) {
+        StrMaker sm{buf};
+        sm.append(float(volt) / 1000, 3);
+        return sm.str();
     }
 };
 
 /** converts to/from string in HH:MM format
  */
 struct TimeHHMM {
-    ICACHE_FLASH_ATTR static String to_str(uint16_t time) {
-        String tm{time / 60};
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, uint16_t time) {
+        StrMaker sm{buf};
 
-        tm += ':';
-
+        sm += time / 60;
+        sm += ':';
         uint8_t min = time % 60;
 
         if (min < 10)
-            tm += '0';
+            sm += '0';
 
-        tm += min;
-        return tm;
+        sm += min;
+        return sm.str();
     }
 
-    ICACHE_FLASH_ATTR static bool from_str(const String &val, uint16_t &tgt) {
+    ICACHE_FLASH_ATTR static bool from_str(const Str &val, uint16_t &tgt) {
         auto colon_pos = val.indexOf(':');
 
         // allow for minute-only linear counter here too
@@ -144,13 +170,20 @@ struct TimeHHMM {
             return Simple::from_str(val, tgt);
         }
 
+        // valid colon position?
         if (colon_pos >= 0 && ((unsigned)colon_pos < (val.length() - 1))) {
-            tgt = val.substring(0, colon_pos).toInt() * 60 +
-                val.substring(colon_pos + 1).toInt();
-            return true;
+            uint16_t hr, min;
+            if (val.substring(0, colon_pos).toInt(hr) &&
+                val.substring(colon_pos + 1).toInt(min))
+            {
+                tgt = hr * 60 + min;
+                return true;
+            }
         }
+
         return false;
     }
 };
 
 } // namespace cvt
+} // namespace hr20

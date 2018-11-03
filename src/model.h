@@ -21,6 +21,7 @@
 
 #include "value.h"
 #include "timer.h"
+#include "str.h"
 
 namespace hr20 {
 
@@ -78,8 +79,10 @@ struct HR20 {
     // controller error
     CachedValue<uint8_t>  ctl_err;
 
-
-    ICACHE_FLASH_ATTR bool set_timer_mode(uint8_t day, uint8_t slot, const String &val) {
+    ICACHE_FLASH_ATTR bool set_timer_mode(uint8_t day,
+                                          uint8_t slot,
+                                          const Str &val)
+    {
         if (day >= TIMER_DAYS) return false;
         if (slot >= TIMER_SLOTS_PER_DAY) return false;
 
@@ -93,7 +96,10 @@ struct HR20 {
         return false;
     }
 
-    ICACHE_FLASH_ATTR bool set_timer_time(uint8_t day, uint8_t slot, const String &val) {
+    ICACHE_FLASH_ATTR bool set_timer_time(uint8_t day,
+                                          uint8_t slot,
+                                          const Str &val)
+    {
         if (day >= TIMER_DAYS) return false;
         if (slot >= TIMER_SLOTS_PER_DAY) return false;
 

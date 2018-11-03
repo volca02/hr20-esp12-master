@@ -120,7 +120,9 @@ struct EventLog {
     };
 
     const_iterator begin() const {
-        return {*this, (pos + EVENT_LOG_LEN - 1) % EVENT_LOG_LEN};
+        return {
+            *this,
+            static_cast<uint16_t>((pos + EVENT_LOG_LEN - 1) % EVENT_LOG_LEN)};
     }
 
     const_iterator end() const {

@@ -77,8 +77,8 @@ struct CachedValue {
         return flags[REMOTE_VALID];
     }
 
-    ICACHE_FLASH_ATTR String to_str() const {
-        return Converter::to_str(remote);
+    ICACHE_FLASH_ATTR Str to_str(Buffer buf) const {
+        return Converter::to_str(buf, remote);
     }
 
 protected:
@@ -92,6 +92,7 @@ protected:
 template<typename T, typename CvT = cvt::Simple>
 struct SyncedValue : public CachedValue<T, CvT> {
     using Converter = CvT;
+    using Base      = CachedValue<T, CvT>;
 
     bool ICACHE_FLASH_ATTR needs_write() {
         return (!is_synced()) && (resend_ctr.should_retry());
@@ -120,7 +121,7 @@ struct SyncedValue : public CachedValue<T, CvT> {
         // set over a known prev. value should reset set requests
         bool diff = (this->remote != val) && this->remote_valid();
 
-        CachedValue<T, CvT>::set_remote(val);
+        Base::set_remote(val);
 
         // if none was requested in the meantime, also set requested
         if (this->resend_ctr.is_paused()) {
@@ -143,7 +144,7 @@ struct SyncedValue : public CachedValue<T, CvT> {
 
     /** sets requested value by parsing a string. Returs true of the parse was ok
      *  and value was set. */
-    ICACHE_FLASH_ATTR bool set_requested_from_str(const String &val) {
+    ICACHE_FLASH_ATTR bool set_requested_from_str(const Str &val) {
         T cvtd;
         if (Converter::from_str(val, cvtd)) {
             set_requested(cvtd);

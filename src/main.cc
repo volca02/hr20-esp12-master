@@ -100,19 +100,19 @@ void loop(void) {
     // handle OTA updates as appropriate
     ArduinoOTA.handle();
 
-    time_t now = ntptime.localTime();
-
-    hr20::eventLog.loop(now);
-
     // feed the watchdog...
     ESP.wdtFeed();
 
     bool changed_time = ntptime.update(master.can_update_ntp());
 
-    // re-read local time now that we re-set time.
-    if (changed_time) now = ntptime.localTime();
+    time_t now = ntptime.unixTime();
 
-    bool __attribute__((unused)) sec_pass = master.update(changed_time, now);
+    // re-read local time now that we re-set time.
+    if (changed_time)
+        hr20::eventLog.loop(now);
+
+    bool __attribute__((unused))
+        sec_pass = master.update(changed_time, ntptime.localTime());
 
     // sec_pass = second passed (once every second)
 

@@ -21,8 +21,9 @@
 
 #include <Arduino.h>
 
-// minimalistic json composition utilities
+#include "str.h"
 
+// minimalistic json composition utilities
 namespace hr20 {
 
 struct HR20;
@@ -31,7 +32,7 @@ struct Event;
 namespace json {
 
 template<typename T>
-inline void str(String &str, const T &val) {
+inline void str(StrMaker &str, const T &val) {
     // NOTE: Does not escape, so it will break on some chars!
     str += '"';
     str += val;
@@ -39,7 +40,7 @@ inline void str(String &str, const T &val) {
 }
 
 struct Comma {
-    inline void next(String &s) {
+    inline void next(StrMaker &s) {
         if (!first) s += ',';
         first = false;
     }
@@ -48,14 +49,14 @@ struct Comma {
 };
 
 struct Element {
-    ICACHE_FLASH_ATTR Element(String &s)  : s(s)   {}
+    ICACHE_FLASH_ATTR Element(StrMaker &s)  : s(s)   {}
     ICACHE_FLASH_ATTR Element(Element &e) : s(e.s) {}
     ICACHE_FLASH_ATTR ~Element() {}
-    String &s;
+    StrMaker &s;
 };
 
 struct Object : public Element {
-    ICACHE_FLASH_ATTR Object(String &s) : Element(s) { s += '{'; }
+    ICACHE_FLASH_ATTR Object(StrMaker &s) : Element(s) { s += '{'; }
     ICACHE_FLASH_ATTR Object(Object &o) : Element(o) { s += '{'; }
 
     inline ~Object() {
@@ -73,7 +74,7 @@ struct Object : public Element {
 };
 
 struct Array : public Element {
-    ICACHE_FLASH_ATTR Array(String &s)  : Element(s) { s += '['; }
+    ICACHE_FLASH_ATTR Array(StrMaker &s)  : Element(s) { s += '['; }
     ICACHE_FLASH_ATTR Array(Element &b) : Element(b) { s += '['; }
 
     ICACHE_FLASH_ATTR void element() {
@@ -100,9 +101,9 @@ inline void kv_raw(Object &o, const T &name, const V &val) {
     o.s += val;
 }
 
-void append_client_attr(String &str, const HR20 &client);
-void append_timer_day(String &str, const HR20 &m, uint8_t day);
-void append_event(String &s, const Event &ev);
+void append_client_attr(StrMaker &str, const HR20 &client);
+void append_timer_day(StrMaker &str, const HR20 &m, uint8_t day);
+void append_event(StrMaker &s, const Event &ev);
 
 } // namespace json
 } // namespace hr20

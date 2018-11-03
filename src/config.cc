@@ -47,8 +47,8 @@ bool ICACHE_FLASH_ATTR Config::jsoneq(const char *json, jsmntok_t *tok,
 char *ICACHE_FLASH_ATTR Config::get_rfm_pass_value() {
     for (int i = 0; i < 8; i++)
     {
-        rfm_pass_hex[2 * i    ] = cvt::int2hex(rfm_pass[i] >>  4);
-        rfm_pass_hex[2 * i + 1] = cvt::int2hex(rfm_pass[i] & 0xF);
+        rfm_pass_hex[2 * i    ] = int2hex(rfm_pass[i] >>  4);
+        rfm_pass_hex[2 * i + 1] = int2hex(rfm_pass[i] & 0xF);
     }
 
     // zero terminate the value.
@@ -61,8 +61,8 @@ bool ICACHE_FLASH_ATTR Config::set_rfm_pass(const char *rfmPass) {
 
     for (int j = 0; j < 8; ++j)
     {
-        int8_t x0 = cvt::hex2int(rfmPass[j * 2    ]);
-        int8_t x1 = cvt::hex2int(rfmPass[j * 2 + 1]);
+        int8_t x0 = hex2int(rfmPass[j * 2    ]);
+        int8_t x1 = hex2int(rfmPass[j * 2 + 1]);
 
         if ((x0 < 0) || (x1 < 0)) {
             // happens even for short passwords

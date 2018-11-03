@@ -23,30 +23,47 @@
 #include "error.h"
 #include "eventlog.h"
 #include "json.h"
+#include "mqtt.h"
+#include "converters.h"
 
 namespace hr20 {
 namespace json {
 
-ICACHE_FLASH_ATTR void append_client_attr(String &str,
-                                          const HR20 &client)
+static const char *S_AUTO      PROGMEM = "auto";
+static const char *S_LOCK      PROGMEM = "lock";
+static const char *S_WINDOW    PROGMEM = "window";
+static const char *S_TEMP      PROGMEM = "temp";
+static const char *S_BAT       PROGMEM = "bat";
+static const char *S_TEMP_WTD  PROGMEM = "temp_wtd";
+static const char *S_VALVE_WTD PROGMEM = "valve_wtd";
+static const char *S_ERROR     PROGMEM = "error";
+static const char *S_LAST_SEEN PROGMEM = "last_seen";
+
+void append_client_attr(StrMaker &str,
+                        const HR20 &client)
 {
     // this is intentionally cryptic as we have to fit in 128 bytes
     // for PubSubClient to be able to handle us
     json::Object obj(str);
 
     // attributes follow.
-    json::kv_raw(obj, "auto", client.auto_mode.to_str());
-    json::kv_raw(obj, "lock", client.menu_locked.to_str());
-    json::kv_raw(obj, "window", client.mode_window.to_str());
-    json::kv_raw(obj, "temp", client.temp_avg.to_str());
-    json::kv_raw(obj, "bat", client.bat_avg.to_str());
-    json::kv_raw(obj, "temp_wtd", client.temp_wanted.to_str());
-    json::kv_raw(obj, "valve_wtd", client.cur_valve_wtd.to_str());
-    json::kv_raw(obj, "error", client.ctl_err.to_str());
-    json::kv_raw(obj, "last_seen", String(client.last_contact));
+    cvt::ValueBuffer vb;
+    json::kv_raw(obj, S_AUTO, client.auto_mode.to_str(vb));
+    json::kv_raw(obj, S_LOCK, client.menu_locked.to_str(vb));
+    json::kv_raw(obj, S_WINDOW, client.mode_window.to_str(vb));
+    json::kv_raw(obj, S_TEMP, client.temp_avg.to_str(vb));
+    json::kv_raw(obj, S_BAT, client.bat_avg.to_str(vb));
+    json::kv_raw(obj, S_TEMP_WTD, client.temp_wanted.to_str(vb));
+    json::kv_raw(obj, S_VALVE_WTD, client.cur_valve_wtd.to_str(vb));
+    json::kv_raw(obj, S_ERROR, client.ctl_err.to_str(vb));
+    StrMaker sm{vb};
+    sm += client.last_contact;
+    json::kv_raw(obj, S_LAST_SEEN, sm.str());
 }
 
-ICACHE_FLASH_ATTR void append_timer_day(String &str, const HR20 &m, uint8_t day)
+void append_timer_day(StrMaker &str,
+                      const HR20 &m,
+                      uint8_t day)
 {
     json::Object day_obj(str);
 
@@ -64,18 +81,20 @@ ICACHE_FLASH_ATTR void append_timer_day(String &str, const HR20 &m, uint8_t day)
         json::Object slot(day_obj);
 
 
-        slot.key("time");
-        json::str(str, cvt::TimeHHMM::to_str(remote.time()));
-        slot.key("mode");
-        json::str(str, cvt::Simple::to_str(remote.mode()));
+        cvt::ValueBuffer vb;
+        slot.key(timer_topic_str(mqtt::TIMER_TIME));
+        json::str(str, cvt::TimeHHMM::to_str(vb, remote.time()));
+        slot.key(timer_topic_str(mqtt::TIMER_MODE));
+        json::str(str, cvt::Simple::to_str(vb, remote.mode()));
     }
 }
 
-void append_event(String &str, const Event &ev) {
+void append_event(StrMaker &str, const Event &ev) {
     json::Object obj(str);
 
     // attributes follow.
-    json::kv_raw(obj, "type",  cvt::Simple::to_str((uint8_t)ev.type));
+    cvt::ValueBuffer vb;
+    json::kv_raw(obj, "type",  cvt::Simple::to_str(vb, (uint8_t)ev.type));
     switch (ev.type) {
     case EventType::EVENT:
         json::kv_str(
@@ -87,8 +106,8 @@ void append_event(String &str, const Event &ev) {
     default:
         break;
     }
-    json::kv_raw(obj, "value", cvt::Simple::to_str(ev.value));
-    json::kv_raw(obj, "time",  cvt::Simple::to_str(ev.time));
+    json::kv_raw(obj, "value", cvt::Simple::to_str(vb, ev.value));
+    json::kv_raw(obj, "time",  cvt::Simple::to_str(vb, ev.time));
 }
 
 
