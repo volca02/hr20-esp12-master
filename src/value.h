@@ -142,7 +142,7 @@ struct SyncedValue : public CachedValue<T, CvT> {
         return this->remote == this->requested;
     }
 
-    /** sets requested value by parsing a string. Returs true of the parse was ok
+    /** sets requested value by parsing a string. Returns true of the parse was ok
      *  and value was set. */
     ICACHE_FLASH_ATTR bool set_requested_from_str(const Str &val) {
         T cvtd;

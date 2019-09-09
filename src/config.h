@@ -21,7 +21,6 @@
 
 #include <Arduino.h>
 #include <string.h>
-#include <jsmn.h>
 
 #include "debug.h"
 
@@ -54,8 +53,6 @@ struct Config
     bool ICACHE_FLASH_ATTR begin(const char *filename);
 
     char rfm_pass_hex[17];
-private:
-    bool ICACHE_FLASH_ATTR jsoneq(const char *json, jsmntok_t *tok, const char *s);
 
 #ifdef MQTT
     const char *mqtt_client_id_prefix = "OpenHR20_";

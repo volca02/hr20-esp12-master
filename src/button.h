@@ -16,7 +16,7 @@ uint8_t resetWifi;
 uint8_t resetConfig;
 
 
-static void buttonChange() {
+ICACHE_RAM_ATTR static void buttonChange() {
     detachInterrupt(RESET_BUTTON_PIN);
     resetButtonChanged = true;
     resetButtonPressed = digitalRead(RESET_BUTTON_PIN) == HIGH;
@@ -42,7 +42,7 @@ ICACHE_FLASH_ATTR static void handleButton() {
         }
     }
     interrupts();
-    if (resetWifi) { 
+    if (resetWifi) {
         hr20::resetWifi();
         ESP.restart();
         resetWifi=false;

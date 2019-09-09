@@ -48,6 +48,9 @@ enum EventCode {
     // mqtt. publishes/subscription callbacks
     MQTT_PUBLISH          = 50, // a publish was done
     MQTT_CALLBACK         = 51, // mqtt callback was called
+
+    // ntp
+    NTP_SYNCHRONIZED      = 60,
 };
 
 // bitmap of received command responses in the received packet

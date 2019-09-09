@@ -65,7 +65,6 @@ struct RFM12B {
     int recv() {
         if (in.empty())
             return -1;
-
         return in.pop();
     }
 
@@ -78,6 +77,7 @@ struct RFM12B {
             return false;
 
         out.push(c);
+
         return true;
     }
 
@@ -86,9 +86,12 @@ struct RFM12B {
         return out.empty();
     }
 
+    /// update routine. for isr-less operation, this implements a
     /// synchronous polling routine that sends and/or receives one byte a time
     /// to be called from the main loop
-    void poll();
+    /// for isr-enabled operation, this ensures the switch to TX mode
+    /// when send buffer was filled with data to be sent
+    void update();
 
     bool is_idle() const { return mode == IDLE; }
     bool is_sending() const { return mode == TX; }

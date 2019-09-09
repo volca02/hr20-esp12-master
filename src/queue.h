@@ -19,6 +19,8 @@
 
 #pragma once
 
+#include <Arduino.h>
+
 #include <cstdint>
 
 namespace hr20 {
@@ -29,12 +31,19 @@ template<uint8_t LenT>
 struct ShortQ {
     uint8_t buf[LenT];
     // volatile as we're handling these from interrupt too
-    volatile uint8_t _pos = 0, _top = 0;
+    volatile uint8_t _pos = 0;
+    volatile uint8_t _top = 0;
 
     bool push(uint8_t c) {
-        if (full()) return false;
-        buf[_top++] = c;
-        return true;
+        noInterrupts();
+        if (!full()) {
+            buf[_top++] = c;
+            interrupts();
+            return true;
+        } else {
+            interrupts();
+            return false;
+        }
     }
 
     uint8_t pos() const {
@@ -42,15 +51,14 @@ struct ShortQ {
     }
 
     uint8_t pop() {
+        noInterrupts();
+
         uint8_t c = 0x0;
 
         if (_pos < _top) c = buf[_pos++];
+        if (_pos >= _top) clear();
 
-        // reset Q if we emptied it
-        if (_pos >= _top) {
-            clear();
-        }
-
+        interrupts();
         return c;
     }
 
@@ -61,7 +69,7 @@ struct ShortQ {
         return 0x0;
     }
 
-    bool empty() const { return _pos == _top; }
+    bool empty() const { return _pos >= _top; }
     bool full() const  { return _top >= LenT; }
 
     // raw data access for packet storage
@@ -71,9 +79,10 @@ struct ShortQ {
     uint8_t rest_size() const { return _top - _pos; }
     // size from the begining of the buffer
     uint8_t size() const { return _top; }
+
     void clear() {
-        _pos = 0;
         _top = 0;
+        _pos = 0;
     }
 
     uint8_t free_size() const {

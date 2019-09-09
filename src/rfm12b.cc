@@ -60,20 +60,6 @@ void RFM12B::begin() {
     // prepare the NIRQ pin
     pinMode(RFM_NIRQ_PIN, INPUT_PULLUP);
 
-#ifndef RFM_POLL_MODE
-    if (irq_instance != nullptr) {
-        ERR(RFM_ALREADY_INITIALIZED);
-    } else {
-        irq_instance = this;
-
-        // attach the interrupt
-        attachInterrupt(
-                digitalPinToInterrupt(RFM_NIRQ_PIN),
-                &RFM12B::rfm_interrupt_handler,
-                FALLING);
-    }
-#endif
-
     // the rest of this ctor is just stock initialization as
     // copied from OpenHR20's rfm.c initialization routine
     read_status();
@@ -150,22 +136,83 @@ void RFM12B::begin() {
             RFM_PLL_BIRATE_LOW
     );
 
+#ifndef RFM_POLL_MODE
+    // 13. Switch off, attach interrupt
+    spi16(RFM_POWER_MANAGEMENT_EX);
+
+    if (irq_instance != nullptr) {
+        ERR(RFM_ALREADY_INITIALIZED);
+    } else {
+        irq_instance = this;
+
+        // attach the interrupt
+        attachInterrupt(
+                digitalPinToInterrupt(RFM_NIRQ_PIN),
+                &RFM12B::rfm_interrupt_handler,
+                FALLING);
+
+        DBG("(RFM ISR SET)");
+
+        bool isr_low = digitalRead(RFM_NIRQ_PIN) == LOW;
+        if (isr_low) {
+            // WHY IS THE ISR ALREADY LOW IN SOME CASES? Initialization process screws us up?
+            auto st = spi16(RFM_STATUS_CMD);
+            DBG("(ISR SET ALREADY LOW! ST=%X)", st);
+        }
+    }
+#endif
+
     // default is to be waiting for sync word
     switch_to_idle();
 }
 
-void ICACHE_FLASH_ATTR RFM12B::poll() {
+#ifdef DEBUG_RFM
+static volatile uint16_t isr_status = 0xFFFF;
+static volatile uint16_t isr_ctr    = 0;
+#endif
+
+// status and counters from isr
+static volatile uint16_t isr_txb = 0;
+static volatile uint16_t isr_rxb = 0;
+static volatile bool isr_underrun = false;
+
+void ICACHE_FLASH_ATTR RFM12B::update() {
+#ifdef DEBUG_RFM
+    static uint16_t ctr = 0x0;
+
+    // interrupt(s) happened in the meantime
+    if (ctr != isr_ctr) {
+        DBG("(ISR %u: %X TX %d RX %d O %d I %d/%d)",
+            isr_ctr,
+            isr_status,
+            isr_txb,
+            isr_rxb,
+            out.rest_size(),
+            in.rest_size(),
+            in.size());
+
+        isr_status = 0x0FFFF;
+        ctr = isr_ctr;
+    }
+#endif
+
 #ifndef RFM_POLL_MODE
+    // handle underrun reporting
+    if (isr_underrun) {
+        ERR(RFM_TX_UNDERRUN); // TX underrun, otherwise we don't care
+        isr_underrun = false;
+    }
+#endif
+
+    // we need a polling routine called anyway, for situations
+    // when send was called while we were still RX...
+
     // if we're idle and there are data in the out queue, we switch to TX
     if (mode == IDLE && !out.empty()) {
         switch_to_tx();
     }
-#else
-    // switch to IRQ based sending mode if needed/possible
-    if (mode == IDLE && !out.empty()) {
-        switch_to_tx();
-    }
 
+#ifdef RFM_POLL_MODE
     if (mode == TX) {
         // no more data in queue means we can switch to idle now
         if (out.empty()) {
@@ -195,11 +242,9 @@ void ICACHE_FLASH_ATTR RFM12B::poll() {
 #endif
 }
 
-
 uint16_t ICACHE_FLASH_ATTR RFM12B::read_status() {
-    return spi16(0x00);
+    return spi16(RFM_STATUS_CMD);
 }
-
 
 int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
     // can't receive in TX mode
@@ -248,13 +293,13 @@ void RFM12B::switch_to_rx() {
 #ifdef DEBUG_RFM
         DBG("(RX %u)", counter);
 #endif
+        mode = RX;
         counter = 0;
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
               RFM_POWER_MANAGEMENT_EBB |
               RFM_POWER_MANAGEMENT_ES  |
               RFM_POWER_MANAGEMENT_EX);
-        mode = RX;
     }
 }
 
@@ -266,7 +311,9 @@ void RFM12B::switch_to_tx() {
 #ifdef DEBUG_RFM
         DBG("(TX %u)", counter);
 #endif
+        mode = TX;
         counter = 0;
+
         // bogus before switching
         spi16(RFM_TX_WRITE_CMD | 0xAA);
         spi16(RFM_TX_WRITE_CMD | 0xAA);
@@ -275,16 +322,18 @@ void RFM12B::switch_to_tx() {
               RFM_POWER_MANAGEMENT_ET |
               RFM_POWER_MANAGEMENT_ES |
               RFM_POWER_MANAGEMENT_EX);
-        mode = TX;
     }
 }
 
 void RFM12B::switch_to_idle() {
     if (mode != IDLE) {
 #ifdef DEBUG_RFM
-        DBG("(IDLE %u)", counter);
+        // Called in ISR, don't mess with timing
+        // DBG("(IDLE %u)", counter);
 #endif
+        mode = IDLE;
         counter = 0;
+
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
               RFM_POWER_MANAGEMENT_EBB |
@@ -295,8 +344,9 @@ void RFM12B::switch_to_idle() {
         spi16(RFM_FIFO_IT(8) | RFM_FIFO_DR);
         spi16(RFM_FIFO_IT(8) | RFM_FIFO_FF | RFM_FIFO_DR);
 
+        read_status();
+
         in.clear();
-        mode = IDLE;
     }
 }
 
@@ -309,47 +359,59 @@ uint16_t RFM12B::spi16(uint16_t reg) {
 #ifndef RFM_POLL_MODE
 // NOTE: Not using ICACHE_RAM_ATTR as it seems to cause Exception 0
 // Just skipping the ICACHE_FLASH_ATTR is enough for this to work
-void RFM12B::rfm_interrupt_handler() {
+void ICACHE_RAM_ATTR RFM12B::rfm_interrupt_handler() {
     if (irq_instance) irq_instance->on_interrupt();
 }
 
-void RFM12B::on_interrupt() {
+void ICACHE_RAM_ATTR RFM12B::on_interrupt() {
     // Interrupt handler
     auto st = spi16(RFM_STATUS_CMD);
 
+#ifdef DEBUG_RFM
+    isr_status = st;
+    isr_ctr++;
+#endif
+
     if (mode == TX) {
-        // this might happen, just send dummy trailing data
-        if (out.empty()) {
-            // just send some dummy data
-            spi16(RFM_TX_WRITE_CMD | 0xAA);
-            // and switch to idle
+        if (st & RFM_STATUS_RGUR) {
+            isr_underrun = true;
             switch_to_idle();
-            return;
         }
 
-        // ready to get send another byte
         if (st & RFM_STATUS_RGIT) {
-            auto c = out.pop();
-            spi16(RFM_TX_WRITE_CMD | (c & 0xFF));
-        }
+            // ready to send... what do we have?
+            if (mode != TX || out.empty())  {
+                // just send some dummy data
+                spi16(RFM_TX_WRITE_CMD | 0xAA);
+                // and switch to idle
+                switch_to_idle();
+            } else {
+                auto c = out.pop();
+                spi16(RFM_TX_WRITE_CMD | (c & 0xFF));
+                ++counter;
+                isr_txb++;
 
-        if (out.empty()) {
-            switch_to_idle();
-            return;
+                if (out.empty()) {
+                    switch_to_idle();
+                    return;
+                }
+            }
         }
-    } else { // RX or IDLE
+    } else {
         if (st & RFM_STATUS_FFIT) {
+            // FIFO is 16 bit!
             auto b = spi16(RFM_FIFO_READ);
 
             if (mode == IDLE) {
                 mode = RX; // if it were IDLE, it's not any more
-                limit = b & 0x7f;
+                limit = b & 0x7F;
             }
 
-            in.push(b & 0x00FF);
-
-            if (in.size() >= limit)
-                switch_to_idle();
+            if (limit) {
+                in.push(b & 0x00FF);
+                limit--;
+                isr_rxb++;
+            } // else just ignore the data, it's over the specified length
         }
     }
 }

@@ -30,6 +30,11 @@ struct Buffer {
         : ptr(ptr), len(len)
     {}
 
+    template<unsigned LEN>
+    Buffer(char buf[LEN])
+        : ptr(buf), len(len)
+    {}
+
     char *ptr;
     unsigned len;
 };
@@ -41,7 +46,6 @@ protected:
     friend struct StrMaker;
     char buf[LEN];
 };
-
 
 /// immutable string that's using a borrowed buffer
 struct Str {
@@ -243,6 +247,10 @@ struct StrMaker {
 
     ICACHE_FLASH_ATTR StrMaker & operator += (int i) {
         return this->operator+=((long int)i);
+    }
+
+    ICACHE_FLASH_ATTR StrMaker & operator += (unsigned u) {
+        return this->operator+=((long int)u);
     }
 
     // appends float with rounding to default num. of decimal places

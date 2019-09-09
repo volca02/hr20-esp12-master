@@ -20,6 +20,7 @@
 #pragma once
 
 #include <Arduino.h>
+
 #include "str.h"
 
 namespace hr20 {

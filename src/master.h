@@ -45,7 +45,7 @@ struct HR20Master {
     }
 
     bool ICACHE_FLASH_ATTR update(bool changed_time, time_t now) {
-        radio.poll();
+        radio.update();
 
         // Note: could use [[maybe_unused]] in C++17
         // update the crypto rtc if needed
