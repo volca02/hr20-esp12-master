@@ -18,6 +18,7 @@
  */
 
 #include <FS.h>
+#include <jsmn.h>
 
 #include "config.h"
 #include "converters.h"
@@ -25,6 +26,17 @@
 #include "error.h"
 
 namespace hr20 {
+namespace {
+bool ICACHE_FLASH_ATTR jsoneq(const char *json, jsmntok_t *tok,
+                              const char *s)
+{
+  if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
+      strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
+    return true;
+  }
+  return false;
+}
+}
 
 bool ICACHE_FLASH_ATTR Config::begin(const char *fname)
 {
@@ -32,16 +44,6 @@ bool ICACHE_FLASH_ATTR Config::begin(const char *fname)
     sprintf(mqtt_client_id, "%s%08x", mqtt_client_id_prefix, ESP.getChipId());
 #endif
     return load(fname);
-}
-
-bool ICACHE_FLASH_ATTR Config::jsoneq(const char *json, jsmntok_t *tok,
-                                      const char *s)
-{
-  if (tok->type == JSMN_STRING && (int)strlen(s) == tok->end - tok->start &&
-      strncmp(json + tok->start, s, tok->end - tok->start) == 0) {
-    return true;
-  }
-  return false;
 }
 
 char *ICACHE_FLASH_ATTR Config::get_rfm_pass_value() {
