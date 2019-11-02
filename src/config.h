@@ -53,7 +53,7 @@ struct Config
     bool ICACHE_FLASH_ATTR begin(const char *filename);
 
     char rfm_pass_hex[17];
-
+private:
 #ifdef MQTT
     const char *mqtt_client_id_prefix = "OpenHR20_";
 #endif
