@@ -83,9 +83,23 @@ bool NTPClient::forceUpdate() {
 
   unsigned long highWord = word(this->_packetBuffer[40], this->_packetBuffer[41]);
   unsigned long lowWord = word(this->_packetBuffer[42], this->_packetBuffer[43]);
+
+  unsigned long fracHighWord = word(this->_packetBuffer[44], this->_packetBuffer[45]);
+  unsigned long fracLowWord = word(this->_packetBuffer[46], this->_packetBuffer[47]);
+
   // combine the four bytes (two words) into a long integer
   // this is NTP time (seconds since Jan 1 1900):
   unsigned long secsSince1900 = highWord << 16 | lowWord;
+  unsigned long frac = fracHighWord << 16 | fracLowWord;
+
+  // fractional part to milisecs
+  uint16_t mssec = ((frac >> 7) * 125 + (1UL << 24)) >> 25;
+
+  // so... the NTP server informs us that _lastUpdate in fact means secsSince1900
+  // but it also tells us it's already mssec past that time in seconds
+  // so we have to subtract that mssec time from the _lastUpdate var
+  // so we get to next second sooner (millis() - _lastUpdate gets to next second sooner)
+  this->_lastUpdate -= mssec;
 
   this->_currentEpoc = secsSince1900 - SEVENZYYEARS;
 
