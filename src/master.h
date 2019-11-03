@@ -103,6 +103,10 @@ struct HR20Master {
             int b = queue.peek();
 
             if (b >= 0) {
+                // when sending, we are sure to discard any prior received data
+                length = 0;
+                packet.clear();
+
                 if (radio.send(b)) {
                     queue.pop();
                 } else {
@@ -117,6 +121,7 @@ struct HR20Master {
     }
 
     void ICACHE_FLASH_ATTR wait_for_sync() {
+        length = 0;
         packet.clear();
         radio.wait_for_sync();
     }

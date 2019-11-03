@@ -24,6 +24,9 @@
 
 namespace hr20 {
 
+// None, idle, rx, tx
+static const char *MODE = "NIRT";
+
 #ifndef RFM_POLL_MODE
 RFM12B *RFM12B::irq_instance = nullptr;
 #endif
@@ -207,8 +210,8 @@ void ICACHE_FLASH_ATTR RFM12B::update() {
     // we need a polling routine called anyway, for situations
     // when send was called while we were still RX...
 
-    // if we're idle and there are data in the out queue, we switch to TX
-    if (mode == IDLE && !out.empty()) {
+    // if there are data in the out queue, we switch to TX
+    if (!out.empty()) {
         switch_to_tx();
     }
 
@@ -261,7 +264,13 @@ int ICACHE_FLASH_ATTR RFM12B::recv_byte() {
 
     if (st & RFM_STATUS_FFIT) {
         // forced RX as the radio woken up from IDLE for sure
+#ifdef DEBUG_RFM
+        Mode last_mode = mode;
+#endif
         mode = RX;
+#ifdef DEBUG_RFM
+        if (last_mode != RX) { DBG("(R %c %c)", MODE[last_mode], MODE[mode]); }
+#endif
         auto b = spi16(RFM_FIFO_READ);
         ++counter;
         return ((uint16_t)b & 0x00FF);
@@ -293,15 +302,22 @@ bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
 void RFM12B::switch_to_rx() {
     if (mode != RX) {
 #ifdef DEBUG_RFM
-        DBG("(RX %u)", counter);
+        Mode last_mode = mode;
 #endif
         mode = RX;
-        counter = 0;
+#ifdef DEBUG_RFM
+        DBG("(R %c %c)", MODE[last_mode], MODE[mode]);
+#endif
+
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
               RFM_POWER_MANAGEMENT_EBB |
               RFM_POWER_MANAGEMENT_ES  |
               RFM_POWER_MANAGEMENT_EX);
+#ifdef DEBUG_RFM
+        if (last_mode == TX && counter) { DBG("(SNT %u)", counter); }
+#endif
+        counter = 0;
     }
 }
 
@@ -311,11 +327,12 @@ void RFM12B::switch_to_tx() {
 
     if (mode != TX) {
 #ifdef DEBUG_RFM
-        DBG("(TX %u)", counter);
+        Mode last_mode = mode;
 #endif
         mode = TX;
-        counter = 0;
-
+#ifdef DEBUG_RFM
+        DBG("(R %c %c)", MODE[last_mode], MODE[mode]);
+#endif
         // bogus before switching
         spi16(RFM_TX_WRITE_CMD | 0xAA);
         spi16(RFM_TX_WRITE_CMD | 0xAA);
@@ -324,6 +341,9 @@ void RFM12B::switch_to_tx() {
               RFM_POWER_MANAGEMENT_ET |
               RFM_POWER_MANAGEMENT_ES |
               RFM_POWER_MANAGEMENT_EX);
+
+        in.clear();
+        counter = 0;
     }
 }
 
@@ -331,10 +351,12 @@ void RFM12B::switch_to_idle() {
     if (mode != IDLE) {
 #ifdef DEBUG_RFM
         // Called in ISR, don't mess with timing
-        // DBG("(IDLE %u)", counter);
+        Mode last_mode = mode;
 #endif
         mode = IDLE;
-        counter = 0;
+#ifdef DEBUG_RFM
+        DBG("(R %c %c)", MODE[last_mode], MODE[mode]);
+#endif
 
         spi16(RFM_POWER_MANAGEMENT_DC  |
               RFM_POWER_MANAGEMENT_ER  |
@@ -348,6 +370,10 @@ void RFM12B::switch_to_idle() {
 
 // Why is this here?!
 //        read_status();
+#ifdef DEBUG_RFM
+        if (last_mode == TX && counter) { DBG("(SNT %u)", counter); }
+#endif
+        counter = 0;
 
         in.clear();
     }
