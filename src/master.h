@@ -110,7 +110,6 @@ struct HR20Master {
                     return true;
                 }
             } else {
-                // padding to stop from TXUR errors
                 // no more data...
                 return false;
             }

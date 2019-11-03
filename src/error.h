@@ -40,9 +40,9 @@ enum ErrorCode {
     // ========== PROTOCOL ==========
     // Client address is out of range (0 or >=30)
     PROTO_BAD_CLIENT_ADDR = 20,
-    PROTO_INCOMPLETE_PACKET,
-    PROTO_PACKET_TOO_SHORT,
-    PROTO_BAD_CMAC,
+    PROTO_INCOMPLETE_PACKET, //<! length did not fit the received byte count
+    PROTO_PACKET_TOO_SHORT, //<! length did not fit the received byte count
+    PROTO_BAD_CMAC, //!< probably malformed packet or time diff v.s. client
     // failed processing packet - cannot understand the contents
     PROTO_BAD_RESPONSE,
     // got command instead of reply

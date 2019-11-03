@@ -277,6 +277,8 @@ bool ICACHE_FLASH_ATTR RFM12B::send_byte(unsigned char c) {
 
     if (st & RFM_STATUS_RGUR) {
         ERR(RFM_TX_UNDERRUN); // TX underrun
+        out.clear();
+        switch_to_idle();
     }
 
     if (st & RFM_STATUS_RGIT) {
