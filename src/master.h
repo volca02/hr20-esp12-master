@@ -140,7 +140,9 @@ struct HR20Master {
 
     bool ICACHE_FLASH_ATTR can_update_ntp() {
         auto sec = second(time.localTime());
-        return radio.is_idle() && (sec == 31) && proto.no_forces();
+        // we sacrifice the last of the 2 seconds in a minute for time sync
+        // so it is beneficial to not use the last 2 addresses
+        return radio.is_idle() && (((sec == 31) && proto.no_forces()) || (sec == 58));
     }
 
     // RTC with NTP synchronization

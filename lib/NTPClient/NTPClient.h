@@ -43,20 +43,38 @@ class NTPClient {
      */
     void begin(int port);
 
+
+    struct UpdateState {
+        bool updated; // did it update?
+        bool error;   // if it tried to update and failed, this will be true
+        long drift_s;   // difference between previously estimated epoch time and after-update estimate
+        long drift_m;   // millisecond drift difference (getMillis() difference post and pre. update)
+    };
+
     /**
      * This should be called in the main loop of your application. By default an update from the NTP Server is only
      * made every 60 seconds. This can be configured in the NTPClient constructor.
      *
      * @return true on success, false on failure
      */
-    bool update();
+    bool update()
+    {
+        UpdateState s;
+        update(s);
+        return s.updated;
+    };
+
+    /**
+     * Full implementation of the update call - with more thorough update info.
+     */
+    void update(UpdateState& state);
 
     /**
      * This will force the update from the NTP Server.
      *
      * @return true on success, false on failure
      */
-    bool forceUpdate();
+    void forceUpdate(UpdateState &state);
 
     int getDay();
     int getHours();

@@ -344,7 +344,8 @@ void RFM12B::switch_to_idle() {
         spi16(RFM_FIFO_IT(8) | RFM_FIFO_DR);
         spi16(RFM_FIFO_IT(8) | RFM_FIFO_FF | RFM_FIFO_DR);
 
-        read_status();
+// Why is this here?!
+//        read_status();
 
         in.clear();
     }

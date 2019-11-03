@@ -60,7 +60,7 @@ void NTPClient::begin(int port) {
   this->_udpSetup = true;
 }
 
-bool NTPClient::forceUpdate() {
+void NTPClient::forceUpdate(NTPClient::UpdateState &state) {
   #ifdef DEBUG_NTPClient
     Serial.println("Update from NTP Server");
   #endif
@@ -73,9 +73,16 @@ bool NTPClient::forceUpdate() {
   do {
     delay ( 10 );
     cb = this->_udp->parsePacket();
-    if (timeout > 100) return false; // timeout after 1000 ms
+    if (timeout > 100) {
+        state.updated = false;
+        state.error = true;
+        return;  // timeout after 1000 ms
+    }
     timeout++;
   } while (cb == 0);
+
+  unsigned long prev_millis = getMillis();
+  unsigned long prev_epoch = getEpochTime();
 
   this->_lastUpdate = millis() - (10 * (timeout + 1)); // Account for delay in reading the time
 
@@ -103,16 +110,23 @@ bool NTPClient::forceUpdate() {
 
   this->_currentEpoc = secsSince1900 - SEVENZYYEARS;
 
-  return true;
+  unsigned long cur_millis = getMillis();
+  unsigned long cur_epoch = getEpochTime();
+
+  state.updated = true;
+  state.error   = false;
+  state.drift_s = cur_epoch - prev_epoch;
+  state.drift_m = cur_millis - prev_millis;
 }
 
-bool NTPClient::update() {
+void NTPClient::update(NTPClient::UpdateState &state) {
+  state.updated = false; state.error = false; state.drift_m = 0; state.drift_s = 0;
+
   if ((millis() - this->_lastUpdate >= this->_updateInterval)     // Update after _updateInterval
     || this->_lastUpdate == 0) {                                // Update if there was no update yet.
     if (!this->_udpSetup) this->begin();                         // setup the UDP client if needed
-    return this->forceUpdate();
+    this->forceUpdate(state);
   }
-  return true;
 }
 
 unsigned long NTPClient::getEpochTime() {

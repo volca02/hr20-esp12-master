@@ -77,7 +77,7 @@ struct Event {
 
 // Singleton event log ring buffer
 struct EventLog {
-    ICACHE_FLASH_ATTR void loop(time_t now) {
+    ICACHE_FLASH_ATTR void update(time_t now) {
         this->now = now;
     }
 

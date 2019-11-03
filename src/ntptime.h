@@ -64,7 +64,7 @@ struct NTPTime {
 #ifdef NTP_CLIENT
         timeClient.begin();
         // initial update
-        timeClient.update();
+        update(true);
 #endif
 
     }
@@ -72,13 +72,17 @@ struct NTPTime {
     bool update(bool can_update) {
 #ifdef NTP_CLIENT
         if (can_update) {
-            bool synced = timeClient.update();
+            NTPClient::UpdateState us;
+            timeClient.update(us);
 
-            if (!synced)
-                ERR(NTP_CANNOT_SYNC);
-            // TODO: EVENT(NTP_SYNCHRONIZED);
+            if (us.error) ERR(NTP_CANNOT_SYNC);
+            if (us.updated) {
+                EVENT(NTP_SYNCHRONIZED);
+                DBG("(NTP %ld %ld)", us.drift_s, us.drift_m);
+            }
+
             // that needs ntpclient
-            return synced;
+            return us.updated;
         }
 #endif
         return false;
@@ -100,7 +104,6 @@ struct NTPTime {
 
      int getMillis() {
 #ifdef NTP_CLIENT
-
         return timeClient.getMillis();
 #else
        return millis()%1000;

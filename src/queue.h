@@ -35,6 +35,11 @@ struct ShortQ {
     volatile uint8_t _top = 0;
 
     bool push(uint8_t c) {
+#ifdef RFM_POLL_MODE
+        if (full()) return false;
+        buf[_top++] = c;
+        return true;
+#else
         noInterrupts();
         if (!full()) {
             buf[_top++] = c;
@@ -44,6 +49,7 @@ struct ShortQ {
             interrupts();
             return false;
         }
+#endif
     }
 
     uint8_t pos() const {
@@ -51,14 +57,17 @@ struct ShortQ {
     }
 
     uint8_t pop() {
+#ifndef RFM_POLL_MODE
         noInterrupts();
-
+#endif
         uint8_t c = 0x0;
 
         if (_pos < _top) c = buf[_pos++];
         if (_pos >= _top) clear();
 
+#ifndef RFM_POLL_MODE
         interrupts();
+#endif
         return c;
     }
 

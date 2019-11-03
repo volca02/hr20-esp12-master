@@ -103,13 +103,16 @@ void loop(void) {
     // feed the watchdog...
     ESP.wdtFeed();
 
-    bool changed_time = ntptime.update(master.can_update_ntp());
-
+    static time_t last_time = 0;
     time_t now = ntptime.unixTime();
+    bool changed_time = false;
 
-    // re-read local time now that we re-set time.
-    if (changed_time)
-        hr20::eventLog.loop(now);
+    // don't try to repeat ntp time updates more than once a second!
+    if (now != last_time) {
+        changed_time = ntptime.update(master.can_update_ntp());
+    }
+
+    hr20::eventLog.update(now);
 
     bool __attribute__((unused))
         sec_pass = master.update(changed_time, ntptime.localTime());

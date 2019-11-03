@@ -70,7 +70,7 @@ struct RFM12B {
 
     /// enqueues a character to be sent. returns false if fifo's full
     /// @note FILL the whole buffer in one go, or at least enough
-    /// for the ISR based sending routine not to underrun. poll() call
+    /// for the ISR based sending routine not to underrun. update() call
     /// *will* switch to TX when IDLE and there are bytes to send.
     bool send(char c) {
         if (out.full())
