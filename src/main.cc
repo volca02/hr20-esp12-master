@@ -103,14 +103,11 @@ void loop(void) {
     // feed the watchdog...
     ESP.wdtFeed();
 
-    static time_t last_time = 0;
-    time_t now = ntptime.unixTime();
-    bool changed_time = false;
-
     // don't try to repeat ntp time updates more than once a second!
-    if (now != last_time) {
-        changed_time = ntptime.update(master.can_update_ntp());
-    }
+    bool changed_time = false;
+    time_t now = 0;
+
+    ntptime.update(master.can_update_ntp(), changed_time, now);
 
     hr20::eventLog.update(now);
 

@@ -45,6 +45,8 @@ struct NTPTime {
     // update interval (in milliseconds, can be changed using setUpdateInterval() ).
     NTPClient timeClient;
 
+    long cur_slew = 0;
+
     //Central European Time (Frankfurt, Paris, Prague)
     TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     //Central European Summer Time
     TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       //Central European Standard Time
@@ -64,25 +66,42 @@ struct NTPTime {
 #ifdef NTP_CLIENT
         timeClient.begin();
         // initial update
-        update(true);
+        bool b; time_t m;
+        update(true, b, m);
 #endif
 
     }
 
-    bool update(bool can_update) {
+    bool isSynced() {
 #ifdef NTP_CLIENT
-        if (can_update) {
-            NTPClient::UpdateState us;
-            timeClient.update(us);
+        return timeClient.isSynced();
+#else
+        return true;
+#endif
+    }
 
-            if (us.error) ERR(NTP_CANNOT_SYNC);
-            if (us.updated) {
-                EVENT(NTP_SYNCHRONIZED);
-                DBG("(NTP %ld %ld)", us.drift_s, us.drift_m);
+    bool update(bool can_update, bool &changed_time, time_t &now) {
+#ifdef NTP_CLIENT
+        static time_t last_time = 0;
+        now = unixTime();
+
+        if ((now != last_time)) {
+            if (can_update) {
+                NTPClient::UpdateState us;
+                timeClient.update(us);
+
+                if (us.error) ERR(NTP_CANNOT_SYNC);
+                if (us.updated) {
+                    EVENT(NTP_SYNCHRONIZED);
+                    DBG("(NTP %ld)", us.drift);
+                }
+
+                // that needs ntpclient
+                return us.updated;
             }
 
-            // that needs ntpclient
-            return us.updated;
+            cur_slew = timeClient.slew();
+            last_time = now;
         }
 #endif
         return false;

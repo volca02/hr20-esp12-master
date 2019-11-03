@@ -53,9 +53,9 @@ struct HR20Master {
 
         // TODO: if it's 00 or 30, we send sync
         if (sec_pass) {
-            DBGI("\r[:%d]", crypto.rtc.ss);
+            DBGI("[:%d]\n", crypto.rtc.ss);
             time_t curtime = time.localTime();
-            proto.update(curtime, changed_time);
+            proto.update(curtime, time.isSynced(), changed_time, time.cur_slew);
         }
 
         // send data/receive data as appropriate
@@ -105,12 +105,12 @@ struct HR20Master {
             if (b >= 0) {
                 if (radio.send(b)) {
                     queue.pop();
-                    if (queue.peek() < 0) DBG("(SNT)");
                 } else {
                     // come back after the radio gets free
                     return true;
                 }
             } else {
+                // padding to stop from TXUR errors
                 // no more data...
                 return false;
             }

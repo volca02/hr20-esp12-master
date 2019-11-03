@@ -148,7 +148,9 @@ struct Protocol {
     }
 
     void ICACHE_FLASH_ATTR update(time_t curtime,
-                                  bool changed_time)
+                                  bool is_synced,
+                                  bool changed_time,
+                                  long slew)
     {
         // reset last_addr every second. this way we limit comms to 1 exchange
         // per second
@@ -164,10 +166,11 @@ struct Protocol {
         {
             if (crypto.rtc.ss == 0) {
                 // display current time/date in full format
-                DBG("(TM %04d-%02d-%02d (%d) %02d:%02d:%02d)",
+                DBG("(TM %04d-%02d-%02d (%d) %02d:%02d:%02d [%ld])",
                     year(curtime), month(curtime), day(curtime),
                     (int)((dayOfWeek(curtime) + 5) % 7 + 1),
-                    hour(curtime), minute(curtime), second(curtime)
+                    hour(curtime), minute(curtime), second(curtime),
+                    slew
                 );
             }
 
@@ -176,10 +179,11 @@ struct Protocol {
 #endif
             // send sync packet
             // TODO: set force flags is we want to comm with a specific client
-            send_sync(curtime);
-
-            // and immediately prepare to send it
-            sndQ.prepare_to_send_to(PacketQ::SYNC_ADDR);
+            if (is_synced) {
+                send_sync(curtime);
+                // and immediately prepare to send it
+                sndQ.prepare_to_send_to(PacketQ::SYNC_ADDR);
+            }
         }
     }
 

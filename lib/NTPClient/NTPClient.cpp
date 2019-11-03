@@ -21,6 +21,15 @@
 
 #include "NTPClient.h"
 
+namespace {
+
+// 1 for positive, -1 for negative, 0 for zero
+static int sign(long num) {
+    return (num > 0) - (num < 0);
+}
+
+} // namespace
+
 NTPClient::NTPClient(UDP& udp) {
   this->_udp            = &udp;
 }
@@ -84,7 +93,12 @@ void NTPClient::forceUpdate(NTPClient::UpdateState &state) {
   unsigned long prev_millis = getMillis();
   unsigned long prev_epoch = getEpochTime();
 
-  this->_lastUpdate = millis() - (10 * (timeout + 1)); // Account for delay in reading the time
+  // no prev update means we will do a full one
+  bool fullUpdate = (_lastUpdate == 0);
+
+  // Account for delay in reading the time
+  unsigned long ms = millis();
+  unsigned long updateMillis = ms - (10 * (timeout + 1));
 
   this->_udp->read(this->_packetBuffer, NTP_PACKET_SIZE);
 
@@ -106,50 +120,85 @@ void NTPClient::forceUpdate(NTPClient::UpdateState &state) {
   // but it also tells us it's already mssec past that time in seconds
   // so we have to subtract that mssec time from the _lastUpdate var
   // so we get to next second sooner (millis() - _lastUpdate gets to next second sooner)
-  this->_lastUpdate -= mssec;
-
-  this->_currentEpoc = secsSince1900 - SEVENZYYEARS;
-
   unsigned long cur_millis = getMillis();
   unsigned long cur_epoch = getEpochTime();
 
+  // negative values mean we're behind schedule
+  long drift_ms = ((cur_epoch - prev_epoch) * 1000 + cur_millis - prev_millis) - mssec;
+
+  this->_lastUpdate = ms;
+
+  if (fullUpdate) {
+      this->_epocMS = updateMillis;
+      this->_epocMS -= mssec;
+      this->_currentEpoc = secsSince1900 - SEVENZYYEARS;
+      this->_driftMS = 0;
+      state.drift    = 0;
+  } else {
+      // HACK: we can pre-correct anything rounded to 1 minute intevals, as it does not break our code
+      // this will help us if we get totally lost in time
+      long min_drift  = drift_ms % 60000;
+      this->_epocMS  += drift_ms - min_drift;
+      this->_driftMS  = min_drift;
+      state.drift     = drift_ms;
+  }
+
+  // TODO: Large drift values should maybe cause time skips.
   state.updated = true;
   state.error   = false;
-  state.drift_s = cur_epoch - prev_epoch;
-  state.drift_m = cur_millis - prev_millis;
 }
 
 void NTPClient::update(NTPClient::UpdateState &state) {
-  state.updated = false; state.error = false; state.drift_m = 0; state.drift_s = 0;
+  state.updated = false; state.error = false; state.drift = 0;
 
-  if ((millis() - this->_lastUpdate >= this->_updateInterval)     // Update after _updateInterval
-    || this->_lastUpdate == 0) {                                // Update if there was no update yet.
-    if (!this->_udpSetup) this->begin();                         // setup the UDP client if needed
-    this->forceUpdate(state);
+  if ((millis() - this->_lastUpdate >= this->_updateInterval)  // Update after _updateInterval
+      || this->_lastUpdate == 0)  // Update if there was no update yet.
+  {
+      if (!this->_udpSetup) this->begin();  // setup the UDP client if needed
+      this->forceUpdate(state);
   }
+}
+
+long NTPClient::slew() {
+    // no slew when no sync was done....
+    if (_lastUpdate == 0) return 0;
+
+    unsigned long ms = millis();
+    if (ms - _lastSlew >= 60000) {
+        // correct the time resolution by shifting _lastUpdate a bit
+        int correction = sign(_driftMS);
+        _lastSlew   = ms;
+        _epocMS     += correction;
+        _driftMS    -= correction;
+    }
+
+    return _driftMS;
 }
 
 unsigned long NTPClient::getEpochTime() {
   return this->_timeOffset + // User offset
          this->_currentEpoc + // Epoc returned by the NTP server
-         ((millis() - this->_lastUpdate) / 1000); // Time since last update
+         ((millis() - this->_epocMS) / 1000); // Time since last update
 }
 
 int NTPClient::getDay() {
   return (((this->getEpochTime()  / 86400L) + 4 ) % 7); //0 is Sunday
 }
+
 int NTPClient::getHours() {
   return ((this->getEpochTime()  % 86400L) / 3600);
 }
+
 int NTPClient::getMinutes() {
   return ((this->getEpochTime() % 3600) / 60);
 }
+
 int NTPClient::getSeconds() {
   return (this->getEpochTime() % 60);
 }
 
 int NTPClient::getMillis() {
-  return ((millis() - this->_lastUpdate) % 1000);
+  return ((millis() - this->_epocMS) % 1000);
 }
 
 String NTPClient::getFormattedTime() {

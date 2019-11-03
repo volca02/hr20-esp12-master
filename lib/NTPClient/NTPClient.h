@@ -20,7 +20,12 @@ class NTPClient {
     unsigned int  _updateInterval = 60000;  // In ms
 
     unsigned long _currentEpoc    = 0;      // In s
-    unsigned long _lastUpdate     = 0;      // In ms
+    unsigned long _epocMS         = 0;      // In ms - the millis() state when currentEpoc happened
+    unsigned long _lastUpdate     = 0;      // In ms - when the fullUpdate last happened
+
+    // In ms. Drift v.s. the NTP state. negative means we're behind schedule
+    long _driftMS                 = 0;
+    unsigned long _lastSlew       = 0;      // In ms - millis() when we last did slew() update
 
     byte          _packetBuffer[NTP_PACKET_SIZE];
 
@@ -47,8 +52,7 @@ class NTPClient {
     struct UpdateState {
         bool updated; // did it update?
         bool error;   // if it tried to update and failed, this will be true
-        long drift_s;   // difference between previously estimated epoch time and after-update estimate
-        long drift_m;   // millisecond drift difference (getMillis() difference post and pre. update)
+        long drift;   // current difference in miliseconds between server reported time and our time
     };
 
     /**
@@ -64,8 +68,19 @@ class NTPClient {
         return s.updated;
     };
 
+    bool isSynced() {
+        return _lastUpdate != 0;
+    }
+
+    /**
+     *called about once in a while (perhaps every cycle if deemed needed) to slew the time diff
+     * @return the current drift in ms (negative means we're behind)
+    */
+    long slew();
+
     /**
      * Full implementation of the update call - with more thorough update info.
+     * implements slew as a part of the process to divert from abrupt time skips
      */
     void update(UpdateState& state);
 
