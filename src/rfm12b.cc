@@ -204,6 +204,7 @@ void ICACHE_FLASH_ATTR RFM12B::update() {
     if (isr_underrun) {
         ERR(RFM_TX_UNDERRUN); // TX underrun, otherwise we don't care
         isr_underrun = false;
+        return;
     }
 #endif
 
@@ -376,6 +377,7 @@ void RFM12B::switch_to_idle() {
         counter = 0;
 
         in.clear();
+        out.clear();
     }
 }
 
