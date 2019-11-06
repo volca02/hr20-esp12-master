@@ -202,8 +202,8 @@ void ICACHE_FLASH_ATTR RFM12B::update() {
 #ifndef RFM_POLL_MODE
     // handle underrun reporting
     if (isr_underrun) {
-        ERR(RFM_TX_UNDERRUN); // TX underrun, otherwise we don't care
         isr_underrun = false;
+        ERR(RFM_TX_UNDERRUN); // TX underrun, otherwise we don't care
         return;
     }
 #endif
@@ -212,7 +212,7 @@ void ICACHE_FLASH_ATTR RFM12B::update() {
     // when send was called while we were still RX...
 
     // if there are data in the out queue, we switch to TX
-    if (!out.empty()) {
+    if (!out.empty() && (mode != TX)) {
         switch_to_tx();
     }
 
@@ -376,7 +376,6 @@ void RFM12B::switch_to_idle() {
 #endif
         counter = 0;
 
-        in.clear();
         out.clear();
     }
 }
@@ -407,11 +406,12 @@ void ICACHE_RAM_ATTR RFM12B::on_interrupt() {
         if (st & RFM_STATUS_RGUR) {
             isr_underrun = true;
             switch_to_idle();
+            return;
         }
 
         if (st & RFM_STATUS_RGIT) {
             // ready to send... what do we have?
-            if (mode != TX || out.empty())  {
+            if (out.empty()) {
                 // just send some dummy data
                 spi16(RFM_TX_WRITE_CMD | 0xAA);
                 // and switch to idle
@@ -423,6 +423,8 @@ void ICACHE_RAM_ATTR RFM12B::on_interrupt() {
                 isr_txb++;
 
                 if (out.empty()) {
+                    // just send some dummy data to prevent possible underruns
+                    spi16(RFM_TX_WRITE_CMD | 0xAA);
                     switch_to_idle();
                     return;
                 }
@@ -436,13 +438,16 @@ void ICACHE_RAM_ATTR RFM12B::on_interrupt() {
             if (mode == IDLE) {
                 mode = RX; // if it were IDLE, it's not any more
                 limit = b & 0x7F;
+                in.clear();
             }
 
             if (limit) {
                 in.push(b & 0x00FF);
                 limit--;
                 isr_rxb++;
-            } // else just ignore the data, it's over the specified length
+            } else {
+                switch_to_idle();
+            }
         }
     }
 }

@@ -105,9 +105,7 @@ void loop(void) {
 
     // don't try to repeat ntp time updates more than once a second!
     bool changed_time = false;
-    time_t now = 0;
-
-    ntptime.update(master.can_update_ntp(), changed_time, now);
+    time_t now = ntptime.update(master.can_update_ntp(), changed_time);
 
     hr20::eventLog.update(now);
 
@@ -117,6 +115,13 @@ void loop(void) {
     // sec_pass = second passed (once every second)
 
     handleButton();
+
+    static int last_status = -1;
+    int status = WiFi.status();
+    if (status != last_status) {
+        last_status = status;
+        DBG("(WIFI %d)", status);
+    }
 
 #ifdef MQTT
     // only update mqtt if we have a time to do so, as controlled by master

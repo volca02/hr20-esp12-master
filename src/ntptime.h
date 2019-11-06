@@ -66,8 +66,8 @@ struct NTPTime {
 #ifdef NTP_CLIENT
         timeClient.begin();
         // initial update
-        bool b; time_t m;
-        update(true, b, m);
+        bool b;
+        update(true, b);
 #endif
 
     }
@@ -80,12 +80,16 @@ struct NTPTime {
 #endif
     }
 
-    bool update(bool can_update, bool &changed_time, time_t &now) {
+    time_t update(bool can_update, bool &changed_time) {
 #ifdef NTP_CLIENT
         static time_t last_time = 0;
-        now = unixTime();
+        time_t now = unixTime();
+        changed_time = false;
 
         if ((now != last_time)) {
+            // only work on these updates once every second, not more
+            last_time = now;
+
             if (can_update) {
                 NTPClient::UpdateState us;
                 timeClient.update(us);
@@ -94,17 +98,20 @@ struct NTPTime {
                 if (us.updated) {
                     EVENT(NTP_SYNCHRONIZED);
                     DBG("(NTP %ld)", us.drift);
+                    changed_time = true;
                 }
 
                 // that needs ntpclient
-                return us.updated;
+                return now;
             }
 
             cur_slew = timeClient.slew();
-            last_time = now;
         }
+
+        return now;
+#else
+        return unixTime();
 #endif
-        return false;
     }
 
     time_t unixTime() {

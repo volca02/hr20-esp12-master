@@ -74,7 +74,7 @@ struct WebServer {
 
         if (caddr == 0) {
             // compose a json list of all visible clients
-            server.send(404, "text/plan", "Invalid client");
+            server.send(404, "text/plain", "Invalid client");
             return;
         }
 
@@ -83,7 +83,7 @@ struct WebServer {
 
         if (!m || m->last_contact == 0) {
             // compose a json list of all visible clients
-            server.send(404, "text/plan", "Invalid client");
+            server.send(404, "text/plain", "Invalid client");
             return;
         }
 
