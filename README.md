@@ -28,6 +28,7 @@ So this is the wiring between ESP-12 and RFM12b:
 * D6/HMISO/GPIO12 - SDO
 * D5/HSCLK/GPIO14 - SCK
 * D4/GPIO2        - NSEL
+# D1/GPIO5        - nIRQ
 
 And VDD/GND as usual (3.3V).
 
