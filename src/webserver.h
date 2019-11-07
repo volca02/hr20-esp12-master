@@ -26,7 +26,14 @@
 #include "master.h"
 #include "json.h"
 
+#define LIST_MAX_SIZE (32*140)
+#define TIMER_MAX_SIZE (32*8*8)
+#define EVENT_MAX_SIZE (64*MAX_JSON_EVENTS)
+
 namespace hr20 {
+
+#define JSON200 "HTTP1.0 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+#define JSON200_LEN 69
 
 struct WebServer {
     WebServer(HR20Master &master) : server(80), master(master) {}
@@ -40,10 +47,9 @@ struct WebServer {
     }
 
     ICACHE_FLASH_ATTR void handle_list() {
-        String result;
-        // 5 is estimated HR count used. Optimizing for common cases
-        result.reserve(140 * 5);
-
+        // we need 32*140 for client list
+        static BufferHolder<LIST_MAX_SIZE> buf;
+        StrMaker result(buf);
         {
             json::Object main(result);
 
@@ -63,18 +69,23 @@ struct WebServer {
         } // closes the curly brace
 
         // compose a json list of all visible clients
-        server.send(200, "application/json", result);
+        // send header and content separately
+        server.sendContent_P(JSON200, JSON200_LEN);
+        server.sendContent_P(result.data(), result.size());
+        server.sendContent_P("\r\n", 2);
     }
 
     ICACHE_FLASH_ATTR void handle_timer() {
+        // WE NEED 32*8*8 for timers
+        static BufferHolder<TIMER_MAX_SIZE> buf;
+        StrMaker result(buf);
         // did we get an argument?
         auto client = server.arg("client");
 
         int caddr = client.toInt();
 
         if (caddr == 0) {
-            // compose a json list of all visible clients
-            server.send(404, "text/plain", "Invalid client");
+            server.send_P(404, "text/plain", "Invalid client");
             return;
         }
 
@@ -82,15 +93,9 @@ struct WebServer {
         const auto &m = master.model[caddr];
 
         if (!m || m->last_contact == 0) {
-            // compose a json list of all visible clients
-            server.send(404, "text/plain", "Invalid client");
+            server.send_P(404, "text/plain", "Invalid client");
             return;
         }
-
-        // okay we have a valid client
-        String result;
-        // 32 is ~ the one timer size
-        result.reserve(32 * 8 * 8); // 2k buffer right here right here
 
         { // intentional brace to close the json before we send it
             json::Object obj(result);
@@ -102,12 +107,15 @@ struct WebServer {
             }
         }
 
-        // compose a json list of all visible clients
-        server.send(200, "application/json", result);
+        server.sendContent_P(JSON200, JSON200_LEN);
+        server.sendContent_P(result.data(), result.size());
+        server.sendContent_P("\r\n", 2);
     }
 
     ICACHE_FLASH_ATTR void handle_events() {
-        String result;
+        // we need around 32 * MAX_JSON_EVENTS
+        static BufferHolder<EVENT_MAX_SIZE> buf;
+        StrMaker result(buf);
 
         auto soffset = server.arg("offset");
         unsigned offset   = std::max(0L, soffset.toInt());
@@ -140,8 +148,9 @@ struct WebServer {
 
         } // closes the curly brace
 
-        // compose a json list of all visible clients
-        server.send(200, "application/json", result);
+        server.sendContent_P(JSON200, JSON200_LEN);
+        server.sendContent_P(result.data(), result.size());
+        server.sendContent_P("\r\n", 2);
     }
 
 
