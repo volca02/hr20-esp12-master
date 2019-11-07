@@ -28,12 +28,12 @@
 
 #define LIST_MAX_SIZE (32*140)
 #define TIMER_MAX_SIZE (32*8*8)
-#define EVENT_MAX_SIZE (64*MAX_JSON_EVENTS)
+#define EVENT_MAX_SIZE (100*MAX_JSON_EVENTS)
 
 namespace hr20 {
 
-#define JSON200 "HTTP1.0 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
-#define JSON200_LEN 69
+#define JSON200 "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
+#define JSON200_LEN 70
 
 struct WebServer {
     WebServer(HR20Master &master) : server(80), master(master) {}
@@ -68,11 +68,12 @@ struct WebServer {
 
         } // closes the curly brace
 
+        result += "\r\n";
+
         // compose a json list of all visible clients
         // send header and content separately
         server.sendContent_P(JSON200, JSON200_LEN);
         server.sendContent_P(result.data(), result.size());
-        server.sendContent_P("\r\n", 2);
     }
 
     ICACHE_FLASH_ATTR void handle_timer() {
@@ -107,13 +108,13 @@ struct WebServer {
             }
         }
 
+        result += "\r\n";
+
         server.sendContent_P(JSON200, JSON200_LEN);
         server.sendContent_P(result.data(), result.size());
-        server.sendContent_P("\r\n", 2);
     }
 
     ICACHE_FLASH_ATTR void handle_events() {
-        // we need around 32 * MAX_JSON_EVENTS
         static BufferHolder<EVENT_MAX_SIZE> buf;
         StrMaker result(buf);
 
@@ -148,9 +149,10 @@ struct WebServer {
 
         } // closes the curly brace
 
+        result += "\r\n";
+
         server.sendContent_P(JSON200, JSON200_LEN);
         server.sendContent_P(result.data(), result.size());
-        server.sendContent_P("\r\n", 2);
     }
 
 
