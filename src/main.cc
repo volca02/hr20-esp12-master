@@ -96,18 +96,28 @@ void loop(void) {
     // feed the watchdog...
     ESP.wdtFeed();
 
+
     // don't try to repeat ntp time updates more than once a second!
     bool changed_time = false;
-    time_t now = ntptime.update(master.can_update_ntp(), changed_time);
+    time_t now = ntptime.update(true, changed_time);
 
-    hr20::eventLog.update(now);
+    if (ntptime.isSynced()) {
+        hr20::eventLog.update(now);
 
-    bool __attribute__((unused))
-        sec_pass = master.update(changed_time, ntptime.localTime());
+        bool __attribute__((unused))
+            sec_pass = master.update(changed_time, ntptime.localTime());
 
-    // sec_pass = second passed (once every second)
+        // sec_pass = second passed (once every second)
 
-    handleButton();
+#ifdef MQTT
+    // only update mqtt if we have a time to do so, as controlled by master
+    if (master.is_idle()) publisher.update(now);
+#endif
+    }
+
+#ifdef HR20_DISPLAY
+    // TODO: Eats a lot of time. display.update();
+#endif
 
     static int last_status = -1;
     int status = WiFi.status();
@@ -115,15 +125,6 @@ void loop(void) {
         last_status = status;
         DBG("(WIFI %d)", status);
     }
-
-#ifdef MQTT
-    // only update mqtt if we have a time to do so, as controlled by master
-    if (master.is_idle()) publisher.update(now);
-#endif
-
-#ifdef HR20_DISPLAY
-    // TODO: Eats a lot of time. display.update();
-#endif
 
 #ifdef RFM_POLL_MODE
     // only update web when radio's not talking
