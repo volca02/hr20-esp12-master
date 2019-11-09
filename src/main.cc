@@ -99,7 +99,12 @@ void loop(void) {
 
     // don't try to repeat ntp time updates more than once a second!
     bool changed_time = false;
-    time_t now = ntptime.update(true, changed_time);
+
+    // TODO: Only try to update ntp if we're connected (info by iotwebconf)
+    // TODO: Only update time every N seconds, not every 1 second
+    auto sec = second(ntptime.localTime());
+    // only NTP ~ update every minute
+    time_t now = ntptime.update(sec == 55, changed_time);
 
     if (ntptime.isSynced()) {
         hr20::eventLog.update(now);
