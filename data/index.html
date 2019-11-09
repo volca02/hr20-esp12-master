@@ -5,7 +5,6 @@
 
 <style>
 body {
-    background: #20262E;
     padding: 20px;
     font-family: Helvetica;
 }
@@ -20,6 +19,22 @@ body {
     font-size: 12px;
     font-family: monospace;
     visibility: collapse;
+    float: left;
+    width: 90%;
+}
+
+#util {
+    background: #222;
+    color: #888;
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 15px;
+    text-align: left;
+    font-size: 12px;
+    font-family: monospace;
+    float: right;
+    text-align: right;
+    width: auto;
 }
 
 #clients {
@@ -243,10 +258,12 @@ $(document).ready(function(){
 </head>
 <body>
 <div id="error"></div>
+<div id="util"><a href="config/">configuration</a></div>
 <div style="width:100%">
 <div id="clients"><h2>Clients</h2></div>
 <div id="events"><h2>Events</h2>
 </div>
 </div>
+
 </body>
 </html>

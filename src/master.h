@@ -40,7 +40,9 @@ struct HR20Master {
 
     // has to be called after config.begin()!
     void ICACHE_FLASH_ATTR begin() {
-        crypto.begin(config.rfm_pass);
+        uint8_t rfm_pass[8];
+        config.rfm_pass_to_binary((unsigned char*)rfm_pass);
+        crypto.begin(rfm_pass);
         radio.begin();
     }
 
@@ -147,6 +149,12 @@ struct HR20Master {
         // we sacrifice the last of the 2 seconds in a minute for time sync
         // so it is beneficial to not use the last 2 addresses
         return radio.is_idle() && (((sec == 31) && proto.no_forces()) || (sec == 58));
+    }
+
+    // called when webserver updates the configuration
+    void ICACHE_FLASH_ATTR config_updated() {
+        // restart the ESP to get the settings loaded...
+        ESP.restart();
     }
 
     // RTC with NTP synchronization

@@ -45,28 +45,15 @@ bool ICACHE_FLASH_ATTR Config::begin(const char *fname)
 #ifdef MQTT
     sprintf(mqtt_client_id, "%s%08x", mqtt_client_id_prefix, ESP.getChipId());
 #endif
-    return load(fname);
+//    return load(fname);
+    return true;
 }
 
-char *ICACHE_FLASH_ATTR Config::get_rfm_pass_value() {
-    for (int i = 0; i < 8; i++)
-    {
-        rfm_pass_hex[2 * i    ] = int2hex(rfm_pass[i] >>  4);
-        rfm_pass_hex[2 * i + 1] = int2hex(rfm_pass[i] & 0xF);
-    }
-
-    // zero terminate the value.
-    rfm_pass_hex[16] = 0;
-    return rfm_pass_hex;
-}
-
-bool ICACHE_FLASH_ATTR Config::set_rfm_pass(const char *rfmPass) {
-    uint8_t tmp[8];
-
+bool ICACHE_FLASH_ATTR Config::rfm_pass_to_binary(unsigned char *target) {
     for (int j = 0; j < 8; ++j)
     {
-        int8_t x0 = hex2int(rfmPass[j * 2    ]);
-        int8_t x1 = hex2int(rfmPass[j * 2 + 1]);
+        int8_t x0 = hex2int(rfm_pass_hex[j * 2    ]);
+        int8_t x1 = hex2int(rfm_pass_hex[j * 2 + 1]);
 
         if ((x0 < 0) || (x1 < 0)) {
             // happens even for short passwords
@@ -74,10 +61,8 @@ bool ICACHE_FLASH_ATTR Config::set_rfm_pass(const char *rfmPass) {
             return false;
         }
 
-        tmp[j] = (x0 << 4) | x1;
+        target[j] = (x0 << 4) | x1;
     }
-
-    memcpy(rfm_pass, tmp, sizeof(rfm_pass));
     return true;
 }
 
@@ -90,8 +75,6 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
         SPIFFS.end();
         return false;
     } else {
-        char *rfmPass = get_rfm_pass_value();
-
         DBG("writing to file: %s", filename);
         file.printf("{"
 #ifdef NTP_CLIENT
@@ -99,7 +82,7 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 #endif
 #ifdef MQTT
                     "\"mqtt_server\":\"%s\","
-                    "\"mqtt_port\":%u,"
+                    "\"mqtt_port\":%s,"
                     "\"mqtt_user\":\"%s\","
                     "\"mqtt_pass\":\"%s\","
                     "\"mqtt_topic_prefix\":\"%s\","
@@ -112,7 +95,7 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 #ifdef MQTT
                     mqtt_server, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic_prefix,
 #endif
-                    rfmPass);
+                    rfm_pass_hex);
 
         DBG("Configuration written: {"
 #ifdef NTP_CLIENT
@@ -120,7 +103,7 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 #endif
 #ifdef MQTT
             "\"mqtt_server\":\"%s\","
-            "\"mqtt_port\":%u,"
+            "\"mqtt_port\":%s,"
             "\"mqtt_user\":\"%s\","
             "\"mqtt_pass\":\"%s\","
             "\"mqtt_topic_prefix\":\"%s\","
@@ -133,7 +116,7 @@ bool ICACHE_FLASH_ATTR Config::save(const char *filename)
 #ifdef MQTT
             mqtt_server, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic_prefix,
 #endif
-            rfmPass);
+            rfm_pass_hex);
 
         file.close();
         SPIFFS.end();
@@ -198,10 +181,9 @@ bool ICACHE_FLASH_ATTR Config::load(const char *filename)
                 ERR(CFG_MALFORMED_RFM_PASSWORD);
                 return false;
             }
-            if (!set_rfm_pass(JSON_STRING + offset))
-            {
-                return false;
-            }
+
+            strncpy(rfm_pass_hex, JSON_STRING + offset, len);
+
             i++;
         }
 #ifdef NTP_CLIENT
@@ -222,10 +204,9 @@ bool ICACHE_FLASH_ATTR Config::load(const char *filename)
         }
         else if (jsoneq(JSON_STRING, &t[i], "mqtt_port"))
         {
-            char val[6];
-            strncpy(val, JSON_STRING + offset, len);
-            val[len] = 0;
-            mqtt_port = (uint16_t)atoi(val);
+            strncpy(mqtt_port, JSON_STRING + offset, len);
+            mqtt_port[len] = 0;
+
             i++;
         }
         else if (jsoneq(JSON_STRING, &t[i], "mqtt_user"))

@@ -48,7 +48,8 @@ enum EventCode {
     // mqtt. publishes/subscription callbacks
     MQTT_PUBLISH          = 50, // a publish was done
     MQTT_CALLBACK         = 51, // mqtt callback was called
-
+    MQTT_CONN             = 52, // (re)connected to mqtt server
+    MQTT_SUBSCRIBE        = 53, // subscribed to a topic
     // ntp
     NTP_SYNCHRONIZED      = 60,
 };

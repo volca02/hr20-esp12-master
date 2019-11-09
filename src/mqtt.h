@@ -339,7 +339,7 @@ struct MQTTPublisher {
     }
 
     ICACHE_FLASH_ATTR void begin() {
-        client.setServer(config.mqtt_server, config.mqtt_port);
+        client.setServer(config.mqtt_server, atoi(config.mqtt_port));
         client.setCallback([&](char *topic, byte *payload, unsigned int length)
                            {
                                callback(topic, payload, length);
@@ -364,6 +364,8 @@ struct MQTTPublisher {
             if (!client.connect(config.mqtt_client_id)) {
                 ERR(MQTT_CANNOT_CONNECT);
                 return false;
+            } else {
+                EVENT(MQTT_CONN);
             }
         }
 
@@ -480,6 +482,7 @@ struct MQTTPublisher {
 
         if (!val.subscribed()) {
             client.subscribe(path.c_str());
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             val.subscribed() = true;
         }
     }
@@ -531,8 +534,10 @@ struct MQTTPublisher {
         if (!val.subscribed()) {
             auto path = mode_path.compose(pb);
             client.subscribe(path.c_str());
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             path = time_path.compose(pb);
             client.subscribe(path.c_str());
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             val.subscribed() = true;
         }
     }
@@ -564,39 +569,47 @@ struct MQTTPublisher {
         STATE(0):
             p.topic = mqtt::MODE;
             publish_subscribe(p, hr->auto_mode);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(1):
             p.topic = mqtt::LOCK;
             publish_subscribe(p, hr->menu_locked);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(2):
             p.topic = mqtt::WND;
             publish(p, hr->mode_window);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(3):
             // TODO: this is in 0.01 of C, change it to float?
             p.topic = mqtt::AVG_TMP;
             publish(p, hr->temp_avg);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(4):
             // TODO: Battery is in 0.01 of V, change it to float?
             p.topic = mqtt::BAT;
             publish(p, hr->bat_avg);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(5):
             // TODO: Fix formatting for temp_wanted - float?
             // temp_wanted is in 0.5 C
             p.topic = mqtt::REQ_TMP;
             publish_subscribe(p, hr->temp_wanted);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(6):
             p.topic = mqtt::VALVE_WTD;
             publish(p, hr->cur_valve_wtd);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         // TODO: test_auto
         STATE(7):
             p.topic = mqtt::ERR;
             publish(p, hr->ctl_err);
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(8): {
             p.topic = mqtt::LAST_SEEN;
@@ -604,6 +617,7 @@ struct MQTTPublisher {
             StrMaker sm{vb};
             sm += hr->last_contact;
             publish(p, sm.str());
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         }
 #ifdef MQTT_JSON
@@ -613,6 +627,7 @@ struct MQTTPublisher {
             StrMaker sm{buf};
             json::append_client_attr(sm, *hr);
             publish(p, sm.str());
+            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         }
 #endif

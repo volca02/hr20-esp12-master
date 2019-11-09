@@ -28,7 +28,7 @@ namespace hr20 {
 
 struct Config
 {
-    uint8_t rfm_pass[8] = {0x01, 0x23, 0x45, 0x67, 0x89, 0x01, 0x23, 0x45};
+    char rfm_pass_hex[17] = "0123456789012345";
 
 #ifdef NTP_CLIENT
     char ntp_server[41] = "2.europe.pool.ntp.org";
@@ -37,7 +37,7 @@ struct Config
 #ifdef MQTT
     char mqtt_client_id[20];
     char mqtt_server[41] = "";
-    uint16_t mqtt_port = 1883;
+    char mqtt_port[6] = "1883";
     char mqtt_user[21] = "";
     char mqtt_pass[21] = "";
     char mqtt_topic_prefix[41] = "hr20";
@@ -46,13 +46,12 @@ struct Config
     bool ICACHE_FLASH_ATTR save(const char *filename);
     bool ICACHE_FLASH_ATTR load(const char *filename);
 
-    char *ICACHE_FLASH_ATTR get_rfm_pass_value();
-    bool ICACHE_FLASH_ATTR set_rfm_pass(const char *pass);
+    // converts hexadecimal config form of rfm password to binary into 8 byte buffer
+    bool ICACHE_FLASH_ATTR rfm_pass_to_binary(unsigned char *rfm_pass);
 
     // loads the config
     bool ICACHE_FLASH_ATTR begin(const char *filename);
 
-    char rfm_pass_hex[17];
 private:
 #ifdef MQTT
     const char *mqtt_client_id_prefix = "OpenHR20_";

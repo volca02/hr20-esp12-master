@@ -27,10 +27,7 @@
 #include "master.h"
 #include "eventlog.h"
 #include "button.h"
-
-#ifdef WEB_SERVER
 #include "webserver.h"
-#endif
 
 #ifdef HR20_DISPLAY
 #include "display.h"
@@ -45,9 +42,8 @@ hr20::ntptime::NTPTime ntptime;
 hr20::HR20Master master{config, ntptime};
 int last_int = 1;
 
-#ifdef WEB_SERVER
-hr20::WebServer webserver(master);
-#endif
+// webserver is mandatory for the configuration of the device
+hr20::Web webserver(config, master);
 
 #ifdef MQTT
 hr20::mqtt::MQTTPublisher publisher(config, master);
@@ -60,11 +56,11 @@ hr20::Display display(master);
 void setup(void) {
     Serial.begin(38400);
 
+    // Config/wifi is handled by IotWebConf
     // must be before wdtEnable
-    bool loaded = config.begin("config.json");
-
+    // bool loaded = config.begin("config.json");
     // this may change the config so it has to be at the top
-    setupWifi(config, loaded);
+    // setupWifi(config, loaded);
 
     // set watchdog to 2 seconds.
     ESP.wdtEnable(2000);
@@ -89,11 +85,8 @@ void setup(void) {
     display.begin();
 #endif
 
-#ifdef WEB_SERVER
     // needed for the webserver
-    SPIFFS.begin();
     webserver.begin();
-#endif
 }
 
 void loop(void) {
@@ -132,7 +125,11 @@ void loop(void) {
     // TODO: Eats a lot of time. display.update();
 #endif
 
-#ifdef WEB_SERVER
-    if (master.is_idle()) webserver.update();
+#ifdef RFM_POLL_MODE
+    // only update web when radio's not talking
+    if (master.is_idle())
+        webserver.update();
+#else
+    webserver.update();
 #endif
 }
