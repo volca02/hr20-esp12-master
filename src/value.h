@@ -119,6 +119,7 @@ struct SyncedValue : public CachedValue<T, CvT> {
     // override for synced values - confirmations reset req_time
     void ICACHE_FLASH_ATTR set_remote(T val) {
         // set over a known prev. value should reset set requests
+        bool was_synced = is_synced();
         bool diff = (this->remote != val) && this->remote_valid();
 
         Base::set_remote(val);
@@ -128,7 +129,7 @@ struct SyncedValue : public CachedValue<T, CvT> {
             this->requested = this->remote;
         } else {
             // set went through or was overwritten
-            if (is_synced() || diff) {
+            if (was_synced || is_synced() || diff) {
                 // don't want to set any more
                 this->resend_ctr.pause();
                 // sync the value just in case it was a diff

@@ -392,6 +392,11 @@ protected:
         // wanted valve position
         uint8_t valve_wtd = p.pop();
 
+        // TODO: implement calendar checksum handling here
+        // * if the packet is longer it contains calendar checksum
+        // * we then can introduce a passive mode that only refreshes
+        // * calendar when the checksum differs.
+
         // fetch client from model
         HR20 *hr = model[addr];
         if (!hr) return ERR_MODEL;
