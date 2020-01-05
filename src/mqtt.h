@@ -37,16 +37,16 @@ namespace mqtt {
 // topic enum. Each has different initial letter for simple parsing
 enum Topic {
     AVG_TMP = 1,
-    BAT,
-    ERR,
-    LOCK,
-    MODE,
-    REQ_TMP,
-    VALVE_WTD,
-    WND,
-    LAST_SEEN,
-    TIMER,
-    STATE,
+    BAT     = 2,
+    ERR     = 3,
+    LOCK    = 4,
+    MODE    = 5,
+    REQ_TMP = 6,
+    VALVE_WTD = 7,
+    WND       = 8,
+    LAST_SEEN = 9,
+    TIMER     = 10,
+    STATE     = 11,
     INVALID_TOPIC = 255
 };
 

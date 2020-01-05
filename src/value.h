@@ -154,6 +154,10 @@ struct SyncedValue : public CachedValue<T, CvT> {
         return false;
     }
 
+    ICACHE_FLASH_ATTR Str req_to_str(Buffer buf) const {
+        return Converter::to_str(buf, requested);
+    }
+
 private:
     T requested;
     RequestDelay<RESEND_CYCLES> resend_ctr;

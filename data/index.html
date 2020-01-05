@@ -214,6 +214,7 @@ function append_clients(data) {
                         .text(key))
                 .append($("<div/>", {class:"client_temp"}).text(value["temp"] + "\u00B0C"))
                 .append($("<div/>", {class:"client_temp"}).text("WTD " + value["temp_wtd"] + "\u00B0C"))
+                .append($("<div/>", {class:"client_temp"}).text("WSET " + value["temp_wset"] + "\u00B0C"))
                 .append($("<div/>", {class:"client_mode"}).text(value["auto"] ? "AUTO" : "MANU"))
                 .append($("<div/>", {class:"client_mode"}).text(value["lock"] ? "\uD83D\uDD12":  "\uD83D\uDD13"))
                 .append($("<div/>", {class:"client_error"}).text(value["error"]))

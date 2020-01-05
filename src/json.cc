@@ -35,6 +35,7 @@ static const char *S_WINDOW    PROGMEM = "window";
 static const char *S_TEMP      PROGMEM = "temp";
 static const char *S_BAT       PROGMEM = "bat";
 static const char *S_TEMP_WTD  PROGMEM = "temp_wtd";
+static const char *S_TEMP_WSET PROGMEM = "temp_wset";
 static const char *S_VALVE_WTD PROGMEM = "valve_wtd";
 static const char *S_ERROR     PROGMEM = "error";
 static const char *S_LAST_SEEN PROGMEM = "last_seen";
@@ -54,6 +55,7 @@ void append_client_attr(StrMaker &str,
     json::kv_raw(obj, S_TEMP, client.temp_avg.to_str(vb));
     json::kv_raw(obj, S_BAT, client.bat_avg.to_str(vb));
     json::kv_raw(obj, S_TEMP_WTD, client.temp_wanted.to_str(vb));
+    json::kv_raw(obj, S_TEMP_WSET, client.temp_wanted.req_to_str(vb));
     json::kv_raw(obj, S_VALVE_WTD, client.cur_valve_wtd.to_str(vb));
     json::kv_raw(obj, S_ERROR, client.ctl_err.to_str(vb));
     StrMaker sm{vb};
