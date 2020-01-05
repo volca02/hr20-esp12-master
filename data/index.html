@@ -156,6 +156,32 @@ body {
     font-size: 12px;
 }
 
+/* LDS loader - taken from web https://loading.io/css/ */
+.lds-dual-ring {
+  display: inline-block;
+  width: 64px;
+  height: 64px;
+}
+.lds-dual-ring:after {
+  content: " ";
+  display: block;
+  width: 46px;
+  height: 46px;
+  margin: 1px;
+  border-radius: 50%;
+  border: 5px solid #fff;
+  border-color: #fff transparent #fff transparent;
+  animation: lds-dual-ring 1.2s linear infinite;
+}
+@keyframes lds-dual-ring {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 </style>
 
 <script>
@@ -224,6 +250,7 @@ function stream_events() {
       success: function(data) {
           // remove old #more button
           $('#more').remove();
+          $('#loader-events').css('visibility', 'hidden');
           append_events(data);
 
           if (Object(data["events"]).length == 10) {
@@ -235,6 +262,7 @@ function stream_events() {
           }
       },
       error: function() {
+          $('#loader-events').css('visibility', 'hidden');
           $('#error').css('visibility', 'visible').append("Cannot list events</br>");
       }
     });
@@ -244,9 +272,11 @@ function stream_events() {
 $(document).ready(function(){
     $.ajax(PREFIX + "list", {
             success: function(data) {
+                $('#loader-clients').remove();
                 append_clients(data);
             },
             error: function() {
+                $('#loader-clients').remove();
                 $('#error').css('visibility', 'visible').append("Cannot list clients</br>");
             }
         });
@@ -260,10 +290,8 @@ $(document).ready(function(){
 <div id="error"></div>
 <div id="util"><a href="config">configuration</a></div>
 <div style="width:100%">
-<div id="clients"><h2>Clients</h2></div>
-<div id="events"><h2>Events</h2>
-</div>
-</div>
+<div id="clients"><h2>Clients</h2><div id="loader-clients" class="lds-dual-ring"></div></div>
+<div id="events"><h2>Events</h2><div id="loader-events" class="lds-dual-ring"></div></div></div>
 
 </body>
 </html>
