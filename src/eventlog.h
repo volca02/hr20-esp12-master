@@ -25,18 +25,13 @@
 
 namespace hr20 {
 
-#define EVENT(CODE) \
-    do { eventLog.append(EventType::EVENT, CODE, __LINE__); } while (0)
-#define EVENT_ARG(CODE, VAL) \
-    do { eventLog.append(EventType::EVENT, CODE, VAL); } while (0)
-
 enum class EventType : uint8_t {
     EVENT = 1,
     ERROR = 2
 };
 
 // enumeration of possible EVENT type events
-enum EventCode {
+enum class EventCode {
     INVALID_EVENT_CODE = 0,
 
     // protocol. sending/receiving of packets
@@ -142,5 +137,15 @@ protected:
 
 // global event log instance
 extern EventLog eventLog;
+
+// appends events only
+inline void append_event(EventCode code, int param) {
+    eventLog.append(EventType::EVENT, static_cast<int>(code), param);
+}
+
+#define EVENT(CODE) \
+    do { append_event(EventCode::CODE, __LINE__); } while (0)
+#define EVENT_ARG(CODE, VAL) \
+    do { append_event(EventCode::CODE, VAL); } while (0)
 
 } // namespace hr20

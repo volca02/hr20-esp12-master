@@ -24,7 +24,7 @@ namespace hr20 {
 EventLog eventLog;
 
 ICACHE_FLASH_ATTR const char *event_to_str(EventCode err) {
-#define HANDLE(CODE) case CODE: return #CODE;
+#define HANDLE(CODE) case EventCode::CODE: return #CODE;
     switch (err) {
         HANDLE(PROTO_PACKET_RECEIVED)
         HANDLE(PROTO_PACKET_SENDING)
@@ -32,6 +32,8 @@ ICACHE_FLASH_ATTR const char *event_to_str(EventCode err) {
         HANDLE(PROTO_HANDLED_OPS)
         HANDLE(MQTT_PUBLISH)
         HANDLE(MQTT_CALLBACK)
+        HANDLE(MQTT_CONN)
+        HANDLE(MQTT_SUBSCRIBE)
         HANDLE(NTP_SYNCHRONIZED)
     default:
         return "INVALID_EVENT_CODE";
