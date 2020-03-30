@@ -141,19 +141,19 @@ struct Model {
         }
 
         auto slot = index[addr];
+
         // do we have the client?
-        if (slot > 0) {
-            return &clients[slot - 1];
+        if (slot == 0) {
+            if (cidx >= MAX_HR_COUNT) {
+                ERR(PROTO_TOO_MANY_CLIENTS);
+                return nullptr;
+            }
+
+            slot        = ++cidx;
+            index[addr] = slot;
         }
 
-        // allocate new slot
-        if (cidx < MAX_HR_COUNT) {
-            index[addr] = ++cidx;
-            return &clients[cidx - 1];
-        }
-
-        ERR(PROTO_TOO_MANY_CLIENTS);
-        return nullptr;
+        return &clients[slot - 1];
     }
 
 protected:

@@ -132,21 +132,6 @@ struct Protocol {
         }
     }
 
-    // call this in the right timespot (time to spare) to prepare commands to be sent to clients
-    void ICACHE_FLASH_ATTR fill_send_queues() {
-        DBG("(QUEUE)");
-        for (unsigned i = 0; i < MAX_HR_ADDR; ++i) {
-            HR20 *hr = model[i];
-
-            if (!hr) continue; // whatever
-            if (hr->last_contact == 0) continue; // not yet seen client
-
-            // we might have some changes to queue
-            DBG("(Q %u)", i);
-            queue_updates_for(i, *hr);
-        }
-    }
-
     void ICACHE_FLASH_ATTR update(time_t curtime,
                                   bool is_synced,
                                   bool changed_time,
@@ -566,6 +551,22 @@ protected:
             // report the client is fully synced
             DBG("(OK %d)", addr);
         }
+
+        // nothing was sent, so send an acknowledge if needed
+        if (synced) {
+            send_ack(addr);
+        }
+    }
+
+    void ICACHE_FLASH_ATTR send_ack(uint8_t addr) {
+#ifdef VERBOSE
+        DBG("   * ACK %u", addr);
+#endif
+
+        // 0 bytes just empty packet for the client
+        // we acknowledge we know about the client this way
+        SndPacket *p = sndQ.want_to_send_for(addr, 0, rd_time);
+        if (!p) return;
     }
 
     void ICACHE_FLASH_ATTR send_set_temp(

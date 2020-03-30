@@ -45,9 +45,9 @@ struct CachedValue {
     }
 
     void ICACHE_FLASH_ATTR set_remote(T val) {
-        remote_valid() = true;
-        if (remote != val) published() = false;
         remote = val;
+        remote_valid() = true;
+        published() = false;
         reread_ctr.pause();
     }
 
