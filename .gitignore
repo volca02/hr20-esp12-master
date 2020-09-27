@@ -2,4 +2,8 @@
 .piolibdeps
 .clang_complete
 .gcc-flags.json
+.ccls-cache
+.ccls
+.ccls-root
+.pio
 **/*~
