@@ -360,7 +360,17 @@ struct MQTTPublisher {
             // TODO: only try this once a few seconds or so
             // just store last time we did it and retry
             // if we get over retry time
-            if (!client.connect(config.mqtt_client_id)) {
+            char *user = nullptr;
+            char *pass = nullptr;
+
+            size_t unl = ::strnlen(config.mqtt_user, sizeof(config.mqtt_user));
+
+            if ((unl > 0) && (unl < sizeof(config.mqtt_user))) {
+                user = config.mqtt_user;
+                pass = config.mqtt_pass;
+            }
+
+            if (!client.connect(config.mqtt_client_id, user, pass)) {
                 ERR(MQTT_CANNOT_CONNECT);
                 return false;
             } else {
