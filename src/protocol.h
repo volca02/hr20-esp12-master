@@ -524,6 +524,11 @@ protected:
             send_set_auto_mode(addr, hr.auto_mode);
         }
 
+        if (hr.menu_locked.needs_write()) {
+            synced = false;
+            send_set_menu_locked(addr, hr.menu_locked);
+        }
+
         // only allow queueing 8 timers to save time
         uint8_t tmr_ctr = MAX_QUEUE_TIMERS;
 
@@ -602,12 +607,24 @@ protected:
 #ifdef VERBOSE
         DBG("   * AUTO %u", addr);
 #endif
-        // 2 bytes [A][xx] xx is in half degrees
         SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
         if (!p) return;
 
         p->push('M');
         p->push(auto_mode.get_requested() ? 1 : 0);
+    }
+
+    void ICACHE_FLASH_ATTR send_set_menu_locked(uint8_t addr,
+                                                SyncedValue<bool> &menu_locked)
+    {
+#ifdef VERBOSE
+        DBG("   * LOCK %u", addr);
+#endif
+        SndPacket *p = sndQ.want_to_send_for(addr, 2, rd_time);
+        if (!p) return;
+
+        p->push('L');
+        p->push(menu_locked.get_requested() ? 1 : 0);
     }
 
     void ICACHE_FLASH_ATTR send_get_timer(uint8_t addr, uint8_t dow,
