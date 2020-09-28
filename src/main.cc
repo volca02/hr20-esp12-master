@@ -21,7 +21,6 @@
 #include <ArduinoOTA.h>
 
 #include "config.h"
-#include "wifi.h"
 #include "ntptime.h"
 #include "debug.h"
 #include "master.h"
@@ -55,12 +54,6 @@ hr20::Display display(master);
 
 void setup(void) {
     Serial.begin(38400);
-
-    // Config/wifi is handled by IotWebConf
-    // must be before wdtEnable
-    // bool loaded = config.begin("config.json");
-    // this may change the config so it has to be at the top
-    // setupWifi(config, loaded);
 
     // set watchdog to 2 seconds.
     ESP.wdtEnable(2000);

@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include "wifi.h"
 #include "debug.h"
 
 #define RESET_BUTTON_PIN 4
@@ -43,7 +42,8 @@ ICACHE_FLASH_ATTR static void handleButton() {
     }
     interrupts();
     if (resetWifi) {
-        hr20::resetWifi();
+#warning REPLACE THIS WITH IOTWEBCONF
+//        hr20::resetWifi();
         ESP.restart();
         resetWifi=false;
     } else if (resetConfig) {

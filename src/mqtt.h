@@ -27,7 +27,6 @@
 #include "error.h"
 #include "master.h"
 #include "util.h"
-#include "wifi.h"
 #include "json.h"
 #include "str.h"
 
