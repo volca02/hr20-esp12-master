@@ -177,7 +177,6 @@ struct Path {
     ICACHE_FLASH_ATTR Str compose(Buffer b) const {
         StrMaker rv(b);
 
-        rv += SEPARATOR;
         rv += prefix;
         rv += SEPARATOR;
         rv += addr;
