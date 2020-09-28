@@ -211,9 +211,6 @@ struct Path {
         // premature end (just the prefix)
         if (!*pos) return {};
 
-        // slash is skipped
-        ++pos;
-
         // tokenize the address
         auto addr = token(pos);
 
@@ -244,6 +241,7 @@ struct Path {
 
             // is the next char a separator? if not then it wasn't a valid path
             if (*pos != Path::SEPARATOR) return {};
+
             ++pos;
 
             auto s_t = token(pos);
@@ -251,6 +249,7 @@ struct Path {
 
             // is the next char a separator? if not then it wasn't a valid path
             if (*pos != Path::SEPARATOR) return {};
+
             ++pos;
 
             // now timer topic
@@ -794,6 +793,7 @@ struct MQTTPublisher {
         }
 
         EVENT_ARG(MQTT_CALLBACK, p.as_uint());
+        DBG("(MQTT %d %d)", p.addr, p.as_uint());
 
         // conversion went sideways
         if (!ok) {
