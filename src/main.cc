@@ -58,6 +58,10 @@ void setup(void) {
     // set watchdog to 2 seconds.
     ESP.wdtEnable(2000);
 
+    // we start the webserver as the first thing here as it initializes the Wifi
+    // and loads the propper config values
+    webserver.begin();
+
     ntptime.begin();
     master.begin();
 
@@ -77,9 +81,6 @@ void setup(void) {
 #ifdef HR20_DISPLAY
     display.begin();
 #endif
-
-    // needed for the webserver
-    webserver.begin();
 }
 
 void loop(void) {

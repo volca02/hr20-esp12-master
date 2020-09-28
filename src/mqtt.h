@@ -357,9 +357,6 @@ struct MQTTPublisher {
 
             DBG("(MQTT CONN)");
 
-            // TODO: only try this once a few seconds or so
-            // just store last time we did it and retry
-            // if we get over retry time
             char *user = nullptr;
             char *pass = nullptr;
 

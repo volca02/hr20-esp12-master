@@ -43,14 +43,8 @@ struct Config
     char mqtt_topic_prefix[41] = "hr20";
 #endif
 
-    bool ICACHE_FLASH_ATTR save(const char *filename);
-    bool ICACHE_FLASH_ATTR load(const char *filename);
-
     // converts hexadecimal config form of rfm password to binary into 8 byte buffer
     bool ICACHE_FLASH_ATTR rfm_pass_to_binary(unsigned char *rfm_pass);
-
-    // loads the config
-    bool ICACHE_FLASH_ATTR begin(const char *filename);
 
 private:
 #ifdef MQTT
