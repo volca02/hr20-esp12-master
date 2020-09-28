@@ -200,16 +200,15 @@ struct Path {
         // compare prefix first
         const char *pos = p;
 
-        // skip initial SEPARATOR if present
-        if (*pos == SEPARATOR) ++pos;
+        // skips the prefix path and compares if it equals
+        // also skips leading separators
+        // skip the prefix (1..n tokens)
+        pos = skip_prefix(pos, prefix);
 
-        // is the first token same as prefix?
-        pos = cmp_token(pos, prefix);
-
-        // not prefix!
+        // prefix does not match!
         if (!pos) return {};
 
-        // premature end
+        // premature end (just the prefix)
         if (!*pos) return {};
 
         // slash is skipped
@@ -233,7 +232,8 @@ struct Path {
 
         if (top == TIMER) {
             // skip the timer topic
-            pos = token(pos).first;
+            auto tt_topic_t = token(pos);
+            pos = tt_topic_t.first + tt_topic_t.second;
 
             if (*pos != Path::SEPARATOR) return {};
             ++pos;
@@ -291,14 +291,66 @@ struct Path {
         return res;
     }
 
-    ICACHE_FLASH_ATTR static const char *cmp_token(const char *p, const char *tok) {
-        auto t = token(p);
-        return (strncmp(p, tok, t.second) == 0) ? p + t.second : nullptr;
+    using Token = std::pair<const char*, uint8_t>;
+
+    ICACHE_FLASH_ATTR static const char *skip_token(const Token &t) {
+        // skips the token chars plus optionally a separator
+        const char *end = t.first + t.second;
+        return skip_separator(end);
+    }
+
+    // skips a separator, and if there is nothing past it, it returns a nullptr
+    // returns `other` if the separator is missing (defaults to nullptr)
+    ICACHE_FLASH_ATTR static const char *skip_separator(
+        const char *p, const char *other = nullptr)
+    {
+        // skip initial SEPARATOR if present
+        if (!p) return nullptr;
+        // this might not be obvious, but it includes a trailing '\0'
+        if (*p != SEPARATOR) return other;
+        ++p;
+        if (*p == 0) return nullptr;
+        return p;
+    }
+
+
+    ICACHE_FLASH_ATTR static const char *skip_prefix(const char *p, const char *pfx) {
+        // also skip any initial separators in prefix path
+        // the second arg is there to ignore if the separator is missing
+        p   = skip_separator(p, p);
+        pfx = skip_separator(pfx, pfx);
+
+        // do we still have something to process?
+        while (p != nullptr && pfx != nullptr) {
+            auto p_t    = token(p);
+            auto pfx_t  = token(pfx);
+
+            // is the first token same as prefix?
+            p = cmp_tokens(p_t, pfx_t);
+
+            // differing tokens?
+            if (!p) return nullptr;
+
+            // and onto the next part of the path
+            p   = skip_token(p_t);
+            pfx = skip_token(pfx_t);
+        }
+
+        // still some prefix left? if so we didn't eat all tokens of it and have
+        // to bail
+        if (pfx) return nullptr;
+
+        return p;
+    }
+
+    ICACHE_FLASH_ATTR static const char *cmp_tokens(const Token &a, const Token &b) {
+        if (a.second != b.second) return nullptr;
+        return (strncmp(a.first, b.first, a.second) == 0) ? a.first + a.second : nullptr;
     }
 
     // returns separator pos (or zero byte) and number of bytes that it took to
     // get there
-    ICACHE_FLASH_ATTR static std::pair<const char*, uint8_t> token(const char *p) {
+    ICACHE_FLASH_ATTR static Token token(const char *p) {
         const char *pos = p;
         for(;*p;++p) {
             if (*p == Path::SEPARATOR) {
@@ -306,7 +358,7 @@ struct Path {
             }
         }
 
-        return {p, p - pos};
+        return {pos, p - pos};
     }
 
     ICACHE_FLASH_ATTR bool valid() { return addr != 0; }
