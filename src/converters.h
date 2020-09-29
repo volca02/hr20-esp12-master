@@ -76,7 +76,6 @@ struct Simple {
         return dta.toInt(tgt);
     }
 
-
     ICACHE_FLASH_ATTR static bool from_str(const Str &dta, bool &tgt) {
         if (dta.equalsIgnoreCase("true")
             || dta.equalsIgnoreCase("on"))

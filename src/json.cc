@@ -38,7 +38,9 @@ static const char *S_TEMP_WTD  PROGMEM = "temp_wtd";
 static const char *S_TEMP_WSET PROGMEM = "temp_wset";
 static const char *S_VALVE_WTD PROGMEM = "valve_wtd";
 static const char *S_ERROR     PROGMEM = "error";
-static const char *S_LAST_SEEN PROGMEM = "last_seen";
+
+static const char *S_LAST_SEEN  PROGMEM = "last_seen";
+static const char *S_STATE      PROGMEM = "st";
 
 void append_client_attr(StrMaker &str,
                         const HR20 &client)
@@ -58,9 +60,23 @@ void append_client_attr(StrMaker &str,
     json::kv_raw(obj, S_TEMP_WSET, client.temp_wanted.req_to_str(vb));
     json::kv_raw(obj, S_VALVE_WTD, client.cur_valve_wtd.to_str(vb));
     json::kv_raw(obj, S_ERROR, client.ctl_err.to_str(vb));
+
+    // just for the info
     StrMaker sm{vb};
     sm += client.last_contact;
     json::kv_raw(obj, S_LAST_SEEN, sm.str());
+
+    // trying to compress in a bit more extra info
+    // bit 1 - needs basic values set on client (requested over mqtt)
+    // bit 2 - needs to read more data from the client to be synced
+    int state = (client.needs_basic_value_sync() ? 1 : 0)
+                | (client.synced ? 0 : 2);
+
+    {
+        StrMaker sm1{vb};
+        sm1 += state;
+        json::kv_raw(obj, S_STATE, sm1.str());
+    }
 }
 
 void append_timer_day(StrMaker &str,

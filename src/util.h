@@ -59,11 +59,11 @@ private:
 struct Flags {
     class const_accessor;
 
-    struct accessor {
-        friend class const_accessor;
+    Flags() {};
 
-        accessor(Flags &f, uint8_t idx) : f(f), idx(idx)
-        {}
+    struct accessor {
+        friend class Flags;
+        friend class const_accessor;
 
         operator bool() const {
             return f.val & (1 << idx);
@@ -76,21 +76,26 @@ struct Flags {
         }
 
     protected:
+        accessor(Flags &f, uint8_t idx) : f(f), idx(idx)
+        {}
+
         uint8_t mask() const { return 1 << idx; }
         Flags &f;
         uint8_t idx;
     };
 
     struct const_accessor {
+        friend class Flags;
         const_accessor(accessor &a) : f(a.f), idx(a.idx) {}
-        const_accessor(const Flags &f, uint8_t idx) : f(f), idx(idx)
-        {}
 
         operator bool() const {
             return f.val & (1 << idx);
         }
 
     protected:
+        const_accessor(const Flags &f, uint8_t idx) : f(f), idx(idx)
+        {}
+
         uint8_t mask() const { return 1 << idx; }
         const Flags &f;
         uint8_t idx;
@@ -105,6 +110,8 @@ struct Flags {
     }
 
 private:
+    Flags(const Flags &) = delete;
+
     uint8_t val = 0;
 };
 
@@ -122,7 +129,7 @@ struct ForceFlags {
         }
 
         ctr++;
-        big += 1 << addr;
+        big |= 1 << addr;
         fat |= fat_comms;
     }
 

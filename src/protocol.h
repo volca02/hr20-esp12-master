@@ -512,20 +512,24 @@ protected:
         // base values not yet read are not a reason for non-synced state
         // the reason is that we'll get them for free after the client
         // shows up
+        unsigned flags = 0;
 
         // wanted temperature
         if (hr.temp_wanted.needs_write()) {
             synced = false;
+            flags |= 1;
             send_set_temp(addr, hr.temp_wanted);
         }
 
         if (hr.auto_mode.needs_write()) {
             synced = false;
+            flags |= 2;
             send_set_auto_mode(addr, hr.auto_mode);
         }
 
         if (hr.menu_locked.needs_write()) {
             synced = false;
+            flags |= 4;
             send_set_menu_locked(addr, hr.menu_locked);
         }
 
@@ -537,11 +541,13 @@ protected:
             for (uint8_t slot = 0; slot < TIMER_SLOTS_PER_DAY; ++slot) {
                 auto &timer = hr.timers[dow][slot];
                 if (timer.needs_read()) {
+                    flags |= 8;
                     synced = hr.synced = false; // shortcut, we might return
                     send_get_timer(addr, dow, slot, timer);
                     if (!(--tmr_ctr)) return;
                 }
                 if (timer.needs_write()) {
+                    flags |= 16;
                     synced = hr.synced = false;
                     send_set_timer(addr, dow, slot, timer);
                     if (!(--tmr_ctr)) return;
@@ -555,6 +561,8 @@ protected:
         if (synced && !was_synced) {
             // report the client is fully synced
             DBG("(OK %d)", addr);
+        } else {
+            DBG("(WAIT %d %d)", addr, flags);
         }
 
         // nothing was sent, so send an acknowledge if needed
@@ -676,8 +684,17 @@ protected:
             for (uint8_t a = 0; a < MAX_HR_ADDR; ++a) {
                 auto *hr = model[a];
                 if (!hr) continue;
+
+#ifdef VERBOSE
+                DBG("(FF %d %d %d)",
+                    a,
+                    hr->last_contact,
+                    ((!hr->synced) || hr->needs_basic_value_sync()) ? 1 : 0);
+#endif
                 if (hr->last_contact == 0) continue;
-                if (!hr->synced) ff.push(a, hr->need_fat_comms);
+                if ((!hr->synced) || hr->needs_basic_value_sync()) {
+                    ff.push(a, hr->need_fat_comms);
+                }
             }
         }
 

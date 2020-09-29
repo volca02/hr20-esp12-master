@@ -74,6 +74,9 @@ static unsigned    S_TIMER_LEN = 5;
 static const char *S_TIMER_MODE = "mode";
 static const char *S_TIMER_TIME = "time";
 
+// set topic branch mid-prefix
+static const char *S_SET_MODE   = "set";
+
 constexpr const uint8_t MAX_MQTT_PATH_LENGTH = 128;
 using PathBuffer = BufferHolder<MAX_MQTT_PATH_LENGTH>;
 
@@ -161,6 +164,7 @@ ICACHE_FLASH_ATTR static TimerTopic parse_timer_topic(const char *top) {
 // mqtt path parser/composer
 struct Path {
     static const char SEPARATOR = '/';
+    static const char WILDCARD  = '#';
     static const char *prefix;
 
     // static method that overrides prefix
@@ -169,16 +173,44 @@ struct Path {
     }
 
     ICACHE_FLASH_ATTR Path() {}
-    ICACHE_FLASH_ATTR Path(uint8_t addr, Topic t, TimerTopic st = TIMER_NONE,
-                           uint8_t day = 0, uint8_t slot = 0)
-        : addr(addr), day(day), slot(slot), topic(t), timer_topic(st)
+    ICACHE_FLASH_ATTR Path(uint8_t addr,
+                           Topic t,
+                           bool set_mode = false,
+                           TimerTopic st = TIMER_NONE,
+                           uint8_t day   = 0,
+                           uint8_t slot  = 0)
+        : addr(addr),
+          day(day),
+          slot(slot),
+          topic(t),
+          timer_topic(st),
+          setter(set_mode)
     {}
+
+    ICACHE_FLASH_ATTR static Str compose_set_prefix_wildcard(Buffer b) {
+        StrMaker rv(b);
+
+        rv += prefix;
+        rv += SEPARATOR;
+        rv += S_SET_MODE;
+        rv += SEPARATOR;
+        rv += WILDCARD;
+
+        return rv.str();
+    }
+
 
     ICACHE_FLASH_ATTR Str compose(Buffer b) const {
         StrMaker rv(b);
 
         rv += prefix;
         rv += SEPARATOR;
+
+        if (setter) {
+            rv += S_SET_MODE;
+            rv += SEPARATOR;
+        }
+
         rv += addr;
         rv += SEPARATOR;
         rv += topic_str(topic);
@@ -198,6 +230,7 @@ struct Path {
     ICACHE_FLASH_ATTR static Path parse(const char *p) {
         // compare prefix first
         const char *pos = p;
+        bool set_mode = false;
 
         // skips the prefix path and compares if it equals
         // also skips leading separators
@@ -212,6 +245,19 @@ struct Path {
 
         // tokenize the address
         auto addr = token(pos);
+
+        static const Token S_SET_TOK{S_SET_MODE, strlen(S_SET_MODE)};
+
+        // is it by chance a set sub_branch?
+        if (cmp_tokens(addr, S_SET_TOK)) {
+            pos = skip_token(addr);
+            set_mode = true;
+
+            if (!pos) return {};
+
+            // re-read the token for address
+            addr = token(pos);
+        }
 
         // convert to number
         uint8_t address = to_num(&pos, addr.second);
@@ -257,10 +303,10 @@ struct Path {
             if (tt == INVALID_TIMER_TOPIC) return {};
 
             // whole timer specification is okay
-            return {address, top, tt, d, s};
+            return {address, top, set_mode, tt, d, s};
         }
 
-        return {address, top};
+        return {address, top, set_mode};
     }
 
     ICACHE_FLASH_ATTR static uint8_t to_num(const char **p, uint8_t cnt) {
@@ -372,6 +418,7 @@ struct Path {
     uint8_t slot = 0;
     Topic topic            = INVALID_TOPIC;
     TimerTopic timer_topic = TIMER_NONE;
+    bool    setter = false; // true in the S_SET_MODE sub-branch
 };
 
 /// Publishes/receives topics in mqtt
@@ -422,6 +469,11 @@ struct MQTTPublisher {
                 return false;
             } else {
                 EVENT(MQTT_CONN);
+
+                // subscribe to the set sub-branch
+                PathBuffer pb;
+                auto path = Path::compose_set_prefix_wildcard(pb);
+                client.subscribe(path.c_str());
             }
         }
 
@@ -519,7 +571,7 @@ struct MQTTPublisher {
         if (client.publish(path.c_str(),
                            reinterpret_cast<const uint8_t *>(val.c_str()),
                            val.length(),
-                           /*retained*/ MQTT_RETAIN))
+                           MQTT_RETAIN))
         {
             EVENT_ARG(MQTT_PUBLISH, p.as_uint());
         } else {
@@ -528,23 +580,16 @@ struct MQTTPublisher {
     }
 
     template <typename T, typename CvT>
-    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p,
-                                             SyncedValue<T, CvT> &val) const
+    ICACHE_FLASH_ATTR void publish_synced(const Path &p,
+                                          SyncedValue<T, CvT> &val) const
     {
         PathBuffer pb;
         auto path = p.compose(pb);
 
         publish(path.c_str(), val, p.as_uint());
-
-        if (!val.subscribed()) {
-            client.subscribe(path.c_str());
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
-            val.subscribed() = true;
-        }
     }
 
-    // timer publishes and subscribes two topics, so we overload for it...
-    ICACHE_FLASH_ATTR void publish_subscribe(const Path &p, TimerSlot &val) const
+    ICACHE_FLASH_ATTR void publish_timer_slot(const Path &p, TimerSlot &val) const
     {
         PathBuffer pb;
 
@@ -586,16 +631,6 @@ struct MQTTPublisher {
 
             val.published() = true;
         }
-
-        if (!val.subscribed()) {
-            auto path = mode_path.compose(pb);
-            client.subscribe(path.c_str());
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
-            path = time_path.compose(pb);
-            client.subscribe(path.c_str());
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
-            val.subscribed() = true;
-        }
     }
 
     ICACHE_FLASH_ATTR void publish_frequent() {
@@ -624,48 +659,40 @@ struct MQTTPublisher {
         switch (state_min) {
         STATE(0):
             p.topic = mqtt::MODE;
-            publish_subscribe(p, hr->auto_mode);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
+            publish_synced(p, hr->auto_mode);
             NEXT_MIN_STATE;
         STATE(1):
             p.topic = mqtt::LOCK;
-            publish_subscribe(p, hr->menu_locked);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
+            publish_synced(p, hr->menu_locked);
             NEXT_MIN_STATE;
         STATE(2):
             p.topic = mqtt::WND;
             publish(p, hr->mode_window);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(3):
             // TODO: this is in 0.01 of C, change it to float?
             p.topic = mqtt::AVG_TMP;
             publish(p, hr->temp_avg);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(4):
             // TODO: Battery is in 0.01 of V, change it to float?
             p.topic = mqtt::BAT;
             publish(p, hr->bat_avg);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(5):
             // TODO: Fix formatting for temp_wanted - float?
             // temp_wanted is in 0.5 C
             p.topic = mqtt::REQ_TMP;
-            publish_subscribe(p, hr->temp_wanted);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
+            publish_synced(p, hr->temp_wanted);
             NEXT_MIN_STATE;
         STATE(6):
             p.topic = mqtt::VALVE_WTD;
             publish(p, hr->cur_valve_wtd);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         // TODO: test_auto
         STATE(7):
             p.topic = mqtt::ERR;
             publish(p, hr->ctl_err);
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         STATE(8): {
             p.topic = mqtt::LAST_SEEN;
@@ -673,7 +700,6 @@ struct MQTTPublisher {
             StrMaker sm{vb};
             sm += hr->last_contact;
             publish(p, sm.str());
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         }
 #ifdef MQTT_JSON
@@ -683,7 +709,6 @@ struct MQTTPublisher {
             StrMaker sm{buf};
             json::append_client_attr(sm, *hr);
             publish(p, sm.str());
-            EVENT_ARG(MQTT_SUBSCRIBE, p.as_uint());
             NEXT_MIN_STATE;
         }
 #endif
@@ -737,10 +762,10 @@ struct MQTTPublisher {
         DBG("(MT %u %u %u)", addr, day, slot);
 #endif
         // only publish timers that have bit set in mask
-        Path p{addr, mqtt::TIMER, mqtt::TIMER_NONE, day, slot};
+        Path p{addr, mqtt::TIMER, false, mqtt::TIMER_NONE, day, slot};
 
         // TODO: Rework this to implicit conversion system
-        publish_subscribe(p, hr->timers[day][slot]);
+        publish_timer_slot(p, hr->timers[day][slot]);
     }
 
     ICACHE_FLASH_ATTR void callback(char *topic, byte *payload,
@@ -750,6 +775,11 @@ struct MQTTPublisher {
         Path p = Path::parse(topic);
 
         if (!p.valid()) {
+            ERR(MQTT_INVALID_TOPIC);
+            return;
+        }
+
+        if (!p.setter) {
             ERR(MQTT_INVALID_TOPIC);
             return;
         }
@@ -792,7 +822,7 @@ struct MQTTPublisher {
         }
 
         EVENT_ARG(MQTT_CALLBACK, p.as_uint());
-        DBG("(MQTT %d %d)", p.addr, p.as_uint());
+        DBG("(MQTT %d %d %d)", p.addr, p.as_uint(), ok ? 1 : 0);
 
         // conversion went sideways
         if (!ok) {

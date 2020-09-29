@@ -29,10 +29,12 @@ struct CachedValue {
     using Converter = CvT;
 
     // bitfield flags. internal rep to save space instead of bools...
+    // not using values but bit indices here!
+    // maximum is 7!
     enum ValueFlags {
-        REMOTE_VALID = 1,
-        PUBLISHED    = 2,
-        SUBSCRIBED   = 4
+        REMOTE_VALID  = 1,
+        PUBLISHED     = 2,
+        SUBSCRIBED    = 3
     };
 
     CachedValue() : reread_ctr() {
@@ -47,33 +49,33 @@ struct CachedValue {
     void ICACHE_FLASH_ATTR set_remote(T val) {
         remote = val;
         remote_valid() = true;
-        published() = false;
+        published()    = false;
         reread_ctr.pause();
     }
 
     T ICACHE_FLASH_ATTR get_remote() const { return remote; }
 
-    Flags::accessor published() {
+    ICACHE_FLASH_ATTR Flags::accessor published() {
         return flags[PUBLISHED];
     }
 
-    Flags::const_accessor published() const {
+    ICACHE_FLASH_ATTR Flags::const_accessor published() const {
         return flags[PUBLISHED];
     }
 
-    Flags::accessor subscribed() {
+    ICACHE_FLASH_ATTR Flags::accessor subscribed() {
         return flags[SUBSCRIBED];
     }
 
-    Flags::const_accessor subscribed() const {
+    ICACHE_FLASH_ATTR Flags::const_accessor subscribed() const {
         return flags[SUBSCRIBED];
     }
 
-    Flags::accessor remote_valid() {
+    ICACHE_FLASH_ATTR Flags::accessor remote_valid() {
         return flags[REMOTE_VALID];
     };
 
-    Flags::const_accessor remote_valid() const {
+    ICACHE_FLASH_ATTR Flags::const_accessor remote_valid() const {
         return flags[REMOTE_VALID];
     }
 
@@ -94,53 +96,50 @@ struct SyncedValue : public CachedValue<T, CvT> {
     using Converter = CvT;
     using Base      = CachedValue<T, CvT>;
 
+    enum ValueFlags {
+        REQUESTED_SET = 4 // used in synced value, this means requested value was set and not yet propagated
+    };
+
+    ICACHE_FLASH_ATTR Flags::accessor is_requested_set() {
+        return this->flags[REQUESTED_SET];
+    };
+
+    ICACHE_FLASH_ATTR Flags::const_accessor is_requested_set() const {
+        return this->flags[REQUESTED_SET];
+    }
+
     bool ICACHE_FLASH_ATTR needs_write() {
-        return (!is_synced()) && (resend_ctr.should_retry());
+        return (is_requested_set()) && (resend_ctr.should_retry());
     }
 
     T& ICACHE_FLASH_ATTR get_requested() { return requested; }
     const T& ICACHE_FLASH_ATTR get_requested() const { return requested; }
 
+
     void ICACHE_FLASH_ATTR set_requested(T val) {
+        // NOTE: Could compare to the currently set value to save roundtrip.
+        // Do this later on if it proves to be robust anyway.
         requested = val;
-
-        // don't set requested if we already hold the same value
-        if (!this->needs_read() && is_synced()) return;
-
+        is_requested_set() = true;
         // resume the send requests
         resend_ctr.resume();
     }
 
     void ICACHE_FLASH_ATTR reset_requested() {
         this->requested = this->remote;
+        is_requested_set() = false;
         resend_ctr.pause();
     }
 
     // override for synced values - confirmations reset req_time
     void ICACHE_FLASH_ATTR set_remote(T val) {
-        // set over a known prev. value should reset set requests
-        bool was_synced = is_synced();
-        bool diff = (this->remote != val) && this->remote_valid();
-
         Base::set_remote(val);
 
-        // if none was requested in the meantime, also set requested
-        if (this->resend_ctr.is_paused()) {
-            this->requested = this->remote;
-        } else {
-            // set went through or was overwritten
-            if (was_synced || is_synced() || diff) {
-                // don't want to set any more
-                this->resend_ctr.pause();
-                // sync the value just in case it was a diff
-                this->requested = this->remote;
-            }
+        // if the value reported from client is equal to the requested
+        // we pull down the requested status
+        if (is_requested_set() && (val == this->requested)) {
+            reset_requested();
         }
-    }
-
-    // returns true for values that don't have newer change request
-    bool ICACHE_FLASH_ATTR is_synced() const {
-        return this->remote == this->requested;
     }
 
     /** sets requested value by parsing a string. Returns true of the parse was ok
@@ -150,9 +149,11 @@ struct SyncedValue : public CachedValue<T, CvT> {
         if (Converter::from_str(val, cvtd)) {
             set_requested(cvtd);
             return true;
+        } else {
+            // we expect this to be happening from MQTT...
+            ERR(MQTT_INVALID_TOPIC_VALUE);
+            return false;
         }
-
-        return false;
     }
 
     ICACHE_FLASH_ATTR Str req_to_str(Buffer buf) const {

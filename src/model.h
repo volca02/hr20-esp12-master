@@ -53,6 +53,12 @@ struct HR20 {
     // false unlocked, true locked - L[01]/L[00]
     SyncedValue<bool>     menu_locked;
 
+    // true if one or more of the synced values up here need to be written to client
+    bool needs_basic_value_sync() const {
+        return temp_wanted.is_requested_set() || auto_mode.is_requested_set()
+               || menu_locked.is_requested_set();
+    }
+
     // Timers - 8*8 16 bit values total - 128 bytes per HR20
     // R [Xx]
     // W [Xx][MT][TT]
