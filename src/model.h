@@ -29,7 +29,10 @@ using TimerSlot = SyncedValue<Timer>;
 
 // models a single HR20 client
 struct HR20 {
-    HR20() {}
+    HR20() {
+        // we don't want to read eeprom by default. only when requested
+        eeprom.remote_valid() = true;
+    }
 
     HR20(const HR20 &) = delete; // not copyable
     const HR20 &operator = (const HR20 &) = delete;

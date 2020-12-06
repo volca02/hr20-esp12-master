@@ -168,7 +168,8 @@ enum ChangeCategory {
     CHANGE_TIMER_4  = 32,
     CHANGE_TIMER_5  = 64,
     CHANGE_TIMER_6  = 128,
-    CHANGE_TIMER_7  = 256
+    CHANGE_TIMER_7  = 256,
+    CHANGE_EEPROM   = 512,
 };
 
 extern ChangeCategory timer_day_2_change[8];

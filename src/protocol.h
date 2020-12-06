@@ -472,6 +472,9 @@ protected:
         hr->last_contact = rd_time;
         hr->eeprom.set_remote({eeaddr, eeval});
 
+        // callback to publish the changes. we use frequent here, no big deal
+        if (on_change_cb) on_change_cb(addr, CHANGE_EEPROM);
+
         return OK;
     }
 
@@ -536,7 +539,12 @@ protected:
             send_set_menu_locked(addr, hr.menu_locked);
         }
 
-        if (hr.eeprom.needs_write()) {
+        // read on eeprom?
+        if (hr.eeprom.needs_read()) {
+            synced = false;
+            flags |= 8;
+            send_get_eeprom(addr, hr.eeprom);
+        } else if (hr.eeprom.needs_write()) {
             synced = false;
             flags |= 8;
             send_set_eeprom(addr, hr.eeprom);
@@ -676,7 +684,7 @@ protected:
             uint8_t addr, SyncedValue<EEPROMReq> &eeprom)
     {
 #ifdef VERBOSE
-        DBG("   * EEPROM %u", addr);
+        DBG("   * EEPROM S %u", addr);
 #endif
         SndPacket *p = sndQ.want_to_send_for(addr, 3, rd_time);
         if (!p) return;
@@ -686,6 +694,23 @@ protected:
         p->push(req.address);
         p->push(req.value);
     }
+
+    void ICACHE_FLASH_ATTR send_get_eeprom(
+            uint8_t addr, SyncedValue<EEPROMReq> &eeprom)
+    {
+#ifdef VERBOSE
+        DBG("   * EEPROM G %u", addr);
+#endif
+        SndPacket *p = sndQ.want_to_send_for(addr, 3, rd_time);
+        if (!p) return;
+
+        p->push('G');
+        // address is validly stored in remote, eventhough complete value is
+        // invalidated
+        const auto &rem = eeprom.get_remote();
+        p->push(rem.address);
+    }
+
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {
 #ifdef NTP_CLIENT

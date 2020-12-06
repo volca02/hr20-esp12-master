@@ -66,7 +66,8 @@ enum EEPROMAccess {
 static const char *S_AVG_TMP   = "average_temp";
 static const char *S_BAT       = "battery";
 static const char *S_ERR       = "error";
-static const char *S_EEPROM    = "eeprom";
+static const char *S_EEPROM     = "eeprom";
+static unsigned    S_EEPROM_LEN = 6;
 static const char *S_LOCK      = "lock";
 static const char *S_MODE      = "mode";
 static const char *S_REQ_TMP   = "requested_temp"; // 14
@@ -139,7 +140,7 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         return INVALID_TOPIC;
     case 'e':
         if (strcmp(top, S_ERR) == 0) return ERR;
-        if (strcmp(top, S_EEPROM) == 0) return EEPROM;
+        if (strncmp(top, S_EEPROM, S_EEPROM_LEN) == 0) return EEPROM;
         return INVALID_TOPIC;
     case 'l':
         if (strcmp(top, S_LOCK) == 0) return LOCK;
@@ -272,14 +273,13 @@ struct Path {
         rv += topic_str(topic);
 
         if (topic == EEPROM) {
+            rv += SEPARATOR;
+            rv += eeprom_address;
+
+            // In set mode we include read/write op. specifier
             if (set_mode) {
                 rv += SEPARATOR;
                 rv += eeprom_access_str(eeprom_access);
-            }
-            // include address - unless in set_mode read
-            if ((eeprom_access != EA_READ) || !set_mode) {
-                rv += SEPARATOR;
-                rv += eeprom_address;
             }
         } else if (topic == TIMER) {
             rv += SEPARATOR;
@@ -341,31 +341,30 @@ struct Path {
         if (top == EEPROM) {
             // eeprom is a sub-tree
             // here we see these
-            // set/.../eeprom/read  - read request to an address written to this topic
-            // set/.../eeprom/write/addr - write request with value for addr written to this topic
+            // set/.../eeprom/addr/read  - read request to an address (value sent is ignored)
+            // set/.../eeprom/addr/write - write request with value for addr written to this topic
             // .../eeprom/addr - value as gathered from client with specified topic
 
             // skip the token 'eeprom'
             auto ee_topic_t = token(pos);
             pos = ee_topic_t.first + ee_topic_t.second;
-
             if (*pos != Path::SEPARATOR) return {};
+            ++pos;
+
+            // unless read mode is set, we expect an address as a continuation
+            auto addr_t = token(pos);
+            uint8_t ee_addr = to_num(&pos, addr_t.second);
 
             // in set mode we expect either read/write tokens next
             EEPROMAccess ea = EA_READ;
             if (set_mode) {
-                auto access = token(pos);
+                // is the next char a separator? if not then it wasn't a valid path
+                if (*pos != Path::SEPARATOR) return {};
+                ++pos;
+
                 ea = parse_eeprom_access(pos);
-                pos = skip_token(access);
 
                 if (ea == INVALID_EEPROM_TOPIC) return {};
-            }
-
-            // unless read mode is set, we expect an address as a continuation
-            uint8_t ee_addr = 0;
-            if (ea != EA_READ || !set_mode) {
-                auto addr_t = token(pos);
-                ee_addr = to_num(&pos, addr_t.second);
             }
 
             return {address, set_mode, ea, ee_addr};
@@ -384,7 +383,6 @@ struct Path {
 
             // is the next char a separator? if not then it wasn't a valid path
             if (*pos != Path::SEPARATOR) return {};
-
             ++pos;
 
             auto s_t = token(pos);
@@ -392,7 +390,6 @@ struct Path {
 
             // is the next char a separator? if not then it wasn't a valid path
             if (*pos != Path::SEPARATOR) return {};
-
             ++pos;
 
             // now timer topic
@@ -584,7 +581,8 @@ struct MQTTPublisher {
     enum StateMajor {
         STM_FREQ        = 0,
         STM_TIMER       = 1,
-        STM_NEXT_CLIENT = 2
+        STM_EEPROM      = 2,
+        STM_NEXT_CLIENT = 3
     };
 
     ICACHE_FLASH_ATTR void update(time_t now) {
@@ -607,6 +605,9 @@ struct MQTTPublisher {
             break;
         case STM_TIMER:
             publish_timers();
+            break;
+        case STM_EEPROM:
+            publish_eeprom();
             break;
         default:
             next_client();
@@ -733,6 +734,44 @@ struct MQTTPublisher {
             val.published() = true;
         }
     }
+
+    ICACHE_FLASH_ATTR void publish_eeprom() {
+        if ((states[addr] & CHANGE_EEPROM) == 0) {
+            // no changes. advance...
+            next_major();
+            return;
+        }
+
+#ifdef VERBOSE
+        // TOO VERBOSE
+        DBG("(ME %u)", addr);
+#endif
+
+        auto *hr = master.model[addr];
+        if (!hr) {
+            ERR(MQTT_INVALID_CLIENT);
+            return;
+        }
+
+        // whatever happens, we transition to next state
+        states[addr] &= ~CHANGE_EEPROM;
+        next_major(); // moves to next major state
+
+        // doing this by hand, the value is composite
+        auto &val = hr->eeprom;
+
+        if (val.published() || !val.remote_valid())
+            return;
+
+        Path p{addr, false, mqtt::EA_READ, val.get_remote().address};
+
+        BufferHolder<10> buf;
+        StrMaker sm{buf};
+        sm += val.get_remote().value;
+        publish(p, sm.str());
+        val.published() = true;
+    }
+
 
     ICACHE_FLASH_ATTR void publish_frequent() {
         if ((states[addr] & CHANGE_FREQUENT) == 0) {
@@ -899,6 +938,25 @@ struct MQTTPublisher {
         case mqtt::REQ_TMP: ok = hr->temp_wanted.set_requested_from_str(val); break;
         case mqtt::MODE: ok = hr->auto_mode.set_requested_from_str(val); break;
         case mqtt::LOCK: ok = hr->menu_locked.set_requested_from_str(val); break;
+        case mqtt::EEPROM: {
+            //            ok = hr->eeprom;
+            // we're in set mode here. for reads we invalidate the remote and let it be read again
+            int ival;
+            if (!val.toInt(ival)) {
+                ok = false;
+                break;
+            }
+
+            if (p.eeprom_access  == EA_WRITE) {
+                hr->eeprom.set_requested({p.eeprom_address, ival});
+            } else if (p.eeprom_address == EA_READ) {
+                // we got a re-read request, we do it without questioning
+                hr->eeprom.set_remote({p.eeprom_address, 0x0});
+                hr->eeprom.remote_valid() = false; // we invalidate it again, so it's re-read
+            }
+
+            break;
+        }
         case mqtt::TIMER: {
             // check day/slot first
             if (p.day >= TIMER_DAYS) {
