@@ -67,6 +67,12 @@ struct Simple {
         return sm.str();
     }
 
+    ICACHE_FLASH_ATTR static Str to_str(Buffer buf, const EEPROMReq &val) {
+        StrMaker sm{buf};
+        sm += (int)val.value;
+        return sm.str();
+    }
+
     ICACHE_FLASH_ATTR static bool from_str(const Str &dta, uint8_t &tgt) {
         return dta.toInt(tgt);
     }

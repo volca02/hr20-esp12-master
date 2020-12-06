@@ -759,17 +759,8 @@ struct MQTTPublisher {
 
         // doing this by hand, the value is composite
         auto &val = hr->eeprom;
-
-        if (val.published() || !val.remote_valid())
-            return;
-
         Path p{addr, false, mqtt::EA_READ, val.get_remote().address};
-
-        BufferHolder<10> buf;
-        StrMaker sm{buf};
-        sm += val.get_remote().value;
-        publish(p, sm.str());
-        val.published() = true;
+        publish(p, val);
     }
 
 
@@ -895,7 +886,7 @@ struct MQTTPublisher {
         }
 
         // clear out the mask bit for the particular day if the last slot is hit
-        if (slot == 7) states[addr] &= ~timer_day_2_change[day];
+        if (slot == TIMER_SLOTS_PER_DAY - 1) states[addr] &= ~timer_day_2_change[day];
 
 #ifdef VERBOSE
         // TOO VERBOSE
@@ -941,18 +932,21 @@ struct MQTTPublisher {
         case mqtt::EEPROM: {
             //            ok = hr->eeprom;
             // we're in set mode here. for reads we invalidate the remote and let it be read again
-            int ival;
-            if (!val.toInt(ival)) {
-                ok = false;
-                break;
-            }
-
-            if (p.eeprom_access  == EA_WRITE) {
+            if (p.eeprom_access == EA_WRITE) {
+                int ival = 0;
+                if (!val.toInt(ival)) {
+                    ERR(MQTT_INVALID_TOPIC_VALUE);
+                    ok = false;
+                    break;
+                }
                 hr->eeprom.set_requested({p.eeprom_address, ival});
-            } else if (p.eeprom_address == EA_READ) {
+            } else if (p.eeprom_access == EA_READ) {
                 // we got a re-read request, we do it without questioning
                 hr->eeprom.set_remote({p.eeprom_address, 0x0});
                 hr->eeprom.remote_valid() = false; // we invalidate it again, so it's re-read
+            } else {
+                ERR(MQTT_INVALID_TOPIC);
+                ok = false;
             }
 
             break;
