@@ -463,11 +463,14 @@ protected:
             return ERR_PROTO;
         }
 
-        // uint8_t idx = p.pop();
-        // uint8_t val = p.pop();
-        // IGNORED
+        uint8_t eeaddr = p.pop();
+        uint8_t eeval  = p.pop();
 
-        p.pop(); p.pop();
+        HR20 *hr = model[addr];
+        if (!hr) return ERR_MODEL;
+
+        hr->last_contact = rd_time;
+        hr->eeprom.set_remote({eeaddr, eeval});
 
         return OK;
     }
@@ -533,6 +536,12 @@ protected:
             send_set_menu_locked(addr, hr.menu_locked);
         }
 
+        if (hr.eeprom.needs_write()) {
+            synced = false;
+            flags |= 8;
+            send_set_eeprom(addr, hr.eeprom);
+        }
+
         // only allow queueing 8 timers to save time
         uint8_t tmr_ctr = MAX_QUEUE_TIMERS;
 
@@ -541,13 +550,13 @@ protected:
             for (uint8_t slot = 0; slot < TIMER_SLOTS_PER_DAY; ++slot) {
                 auto &timer = hr.timers[dow][slot];
                 if (timer.needs_read()) {
-                    flags |= 8;
+                    flags |= 16;
                     synced = hr.synced = false; // shortcut, we might return
                     send_get_timer(addr, dow, slot, timer);
                     if (!(--tmr_ctr)) return;
                 }
                 if (timer.needs_write()) {
-                    flags |= 16;
+                    flags |= 32;
                     synced = hr.synced = false;
                     send_set_timer(addr, dow, slot, timer);
                     if (!(--tmr_ctr)) return;
@@ -661,6 +670,21 @@ protected:
         p->push(dow << 4 | slot);
         p->push(timer.get_requested().raw() >> 8);
         p->push(timer.get_requested().raw() && 0xFF);
+    }
+
+    void ICACHE_FLASH_ATTR send_set_eeprom(
+            uint8_t addr, SyncedValue<EEPROMReq> &eeprom)
+    {
+#ifdef VERBOSE
+        DBG("   * EEPROM %u", addr);
+#endif
+        SndPacket *p = sndQ.want_to_send_for(addr, 3, rd_time);
+        if (!p) return;
+
+        p->push('S');
+        auto &req = eeprom.get_requested();
+        p->push(req.address);
+        p->push(req.value);
     }
 
     void ICACHE_FLASH_ATTR send_sync(time_t curtime) {

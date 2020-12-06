@@ -52,6 +52,8 @@ struct HR20 {
     SyncedValue<bool>     auto_mode;
     // false unlocked, true locked - L[01]/L[00]
     SyncedValue<bool>     menu_locked;
+    // single address read/write request to eeprom
+    SyncedValue<EEPROMReq> eeprom;
 
     // true if one or more of the synced values up here need to be written to client
     bool needs_basic_value_sync() const {

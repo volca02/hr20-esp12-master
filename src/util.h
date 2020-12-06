@@ -184,4 +184,18 @@ public:
     }
 };
 
+// a single address read/write request.
+struct EEPROMReq {
+    bool operator==(const EEPROMReq &o) {
+        return address == o.address && value == o.value;
+    }
+
+    bool operator!=(const EEPROMReq &o) {
+        return !operator==(o);
+    }
+
+    uint8_t address;
+    uint8_t value;
+};
+
 } // namespace hr20

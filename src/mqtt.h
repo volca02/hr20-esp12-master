@@ -46,6 +46,7 @@ enum Topic {
     LAST_SEEN = 9,
     TIMER     = 10,
     STATE     = 11,
+    EEPROM    = 12,
     INVALID_TOPIC = 255
 };
 
@@ -56,9 +57,16 @@ enum TimerTopic {
     INVALID_TIMER_TOPIC = 255
 };
 
+enum EEPROMAccess {
+    EA_READ  = 0,
+    EA_WRITE = 1,
+    INVALID_EEPROM_TOPIC = 255
+};
+
 static const char *S_AVG_TMP   = "average_temp";
 static const char *S_BAT       = "battery";
 static const char *S_ERR       = "error";
+static const char *S_EEPROM    = "eeprom";
 static const char *S_LOCK      = "lock";
 static const char *S_MODE      = "mode";
 static const char *S_REQ_TMP   = "requested_temp"; // 14
@@ -77,6 +85,10 @@ static const char *S_TIMER_TIME = "time";
 // set topic branch mid-prefix
 static const char *S_SET_MODE   = "set";
 
+// eeprom access strs
+static const char *S_EA_READ  = "read";
+static const char *S_EA_WRITE = "write";
+
 constexpr const uint8_t MAX_MQTT_PATH_LENGTH = 128;
 using PathBuffer = BufferHolder<MAX_MQTT_PATH_LENGTH>;
 
@@ -85,6 +97,7 @@ ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     case AVG_TMP:   return S_AVG_TMP;
     case BAT:       return S_BAT;
     case ERR:       return S_ERR;
+    case EEPROM:    return S_EEPROM;
     case LOCK:      return S_LOCK;
     case MODE:      return S_MODE;
     case REQ_TMP:   return S_REQ_TMP;
@@ -94,7 +107,16 @@ ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     case STATE:     return S_STATE;
     case TIMER:     return S_TIMER;
     default:
-        return "invalid!";
+        return nullptr;
+    }
+}
+
+ICACHE_FLASH_ATTR static const char *eeprom_access_str(EEPROMAccess ea) {
+    switch (ea) {
+    case EA_READ:   return S_EA_READ;
+    case EA_WRITE:  return S_EA_WRITE;
+    default:
+        return nullptr;
     }
 }
 
@@ -117,6 +139,7 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         return INVALID_TOPIC;
     case 'e':
         if (strcmp(top, S_ERR) == 0) return ERR;
+        if (strcmp(top, S_EEPROM) == 0) return EEPROM;
         return INVALID_TOPIC;
     case 'l':
         if (strcmp(top, S_LOCK) == 0) return LOCK;
@@ -161,6 +184,22 @@ ICACHE_FLASH_ATTR static TimerTopic parse_timer_topic(const char *top) {
     return INVALID_TIMER_TOPIC;
 }
 
+ICACHE_FLASH_ATTR static EEPROMAccess parse_eeprom_access(const char *top) {
+    if (!top) return INVALID_EEPROM_TOPIC;
+
+    if (top[0] == 'r') {
+        if (strcmp(top, S_EA_READ) == 0) return EA_READ;
+        return INVALID_EEPROM_TOPIC;
+    }
+
+    if (top[0] == 'w') {
+        if (strcmp(top, S_EA_WRITE) == 0) return EA_WRITE;
+        return INVALID_EEPROM_TOPIC;
+    }
+
+    return INVALID_EEPROM_TOPIC;
+}
+
 // mqtt path parser/composer
 struct Path {
     static const char SEPARATOR = '/';
@@ -173,6 +212,8 @@ struct Path {
     }
 
     ICACHE_FLASH_ATTR Path() {}
+
+    // constructor for normal or timer topics
     ICACHE_FLASH_ATTR Path(uint8_t addr,
                            Topic t,
                            bool set_mode = false,
@@ -184,7 +225,22 @@ struct Path {
           slot(slot),
           topic(t),
           timer_topic(st),
-          setter(set_mode)
+          set_mode(set_mode)
+    {}
+
+    // this constructs eeprom access topics
+    ICACHE_FLASH_ATTR Path(uint8_t addr,
+                           bool set_mode,
+                           EEPROMAccess ea,
+                           uint8_t address)
+        : addr(addr),
+          day(0),
+          slot(0),
+          topic(EEPROM),
+          timer_topic(TIMER_NONE),
+          set_mode(set_mode),
+          eeprom_access(ea),
+          eeprom_address(address)
     {}
 
     ICACHE_FLASH_ATTR static Str compose_set_prefix_wildcard(Buffer b) {
@@ -206,7 +262,7 @@ struct Path {
         rv += prefix;
         rv += SEPARATOR;
 
-        if (setter) {
+        if (set_mode) {
             rv += S_SET_MODE;
             rv += SEPARATOR;
         }
@@ -215,7 +271,17 @@ struct Path {
         rv += SEPARATOR;
         rv += topic_str(topic);
 
-        if (topic == TIMER) {
+        if (topic == EEPROM) {
+            if (set_mode) {
+                rv += SEPARATOR;
+                rv += eeprom_access_str(eeprom_access);
+            }
+            // include address - unless in set_mode read
+            if ((eeprom_access != EA_READ) || !set_mode) {
+                rv += SEPARATOR;
+                rv += eeprom_address;
+            }
+        } else if (topic == TIMER) {
             rv += SEPARATOR;
             rv += day;
             rv += SEPARATOR;
@@ -272,8 +338,40 @@ struct Path {
 
         if (top == INVALID_TOPIC) return {};
 
-        if (top == TIMER) {
-            // skip the timer topic
+        if (top == EEPROM) {
+            // eeprom is a sub-tree
+            // here we see these
+            // set/.../eeprom/read  - read request to an address written to this topic
+            // set/.../eeprom/write/addr - write request with value for addr written to this topic
+            // .../eeprom/addr - value as gathered from client with specified topic
+
+            // skip the token 'eeprom'
+            auto ee_topic_t = token(pos);
+            pos = ee_topic_t.first + ee_topic_t.second;
+
+            if (*pos != Path::SEPARATOR) return {};
+
+            // in set mode we expect either read/write tokens next
+            EEPROMAccess ea = EA_READ;
+            if (set_mode) {
+                auto access = token(pos);
+                ea = parse_eeprom_access(pos);
+                pos = skip_token(access);
+
+                if (ea == INVALID_EEPROM_TOPIC) return {};
+            }
+
+            // unless read mode is set, we expect an address as a continuation
+            uint8_t ee_addr = 0;
+            if (ea != EA_READ || !set_mode) {
+                auto addr_t = token(pos);
+                ee_addr = to_num(&pos, addr_t.second);
+            }
+
+            return {address, set_mode, ea, ee_addr};
+        } else if (top == TIMER) {
+            // timer subtree... .../timer/day/slot/[mode/time]
+            // skip the 'timer' token
             auto tt_topic_t = token(pos);
             pos = tt_topic_t.first + tt_topic_t.second;
 
@@ -418,7 +516,10 @@ struct Path {
     uint8_t slot = 0;
     Topic topic            = INVALID_TOPIC;
     TimerTopic timer_topic = TIMER_NONE;
-    bool    setter = false; // true in the S_SET_MODE sub-branch
+    bool    set_mode = false; // true in the S_SET_MODE sub-branch
+
+    EEPROMAccess eeprom_access = EA_READ;
+    uint8_t eeprom_address = 0; // eeprom address in case topic is EEPROM
 };
 
 /// Publishes/receives topics in mqtt
@@ -779,7 +880,7 @@ struct MQTTPublisher {
             return;
         }
 
-        if (!p.setter) {
+        if (!p.set_mode) {
             ERR(MQTT_INVALID_TOPIC);
             return;
         }
