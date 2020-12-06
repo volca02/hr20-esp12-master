@@ -458,7 +458,7 @@ protected:
     }
 
     Error ICACHE_FLASH_ATTR on_eeprom(uint8_t addr, RcvPacket &p) {
-        if (p.rest_size() < 3) {
+        if (p.rest_size() < 2) {
             ERR(PROTO_RESPONSE_TOO_SHORT);
             return ERR_PROTO;
         }

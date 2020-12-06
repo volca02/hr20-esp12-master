@@ -92,6 +92,9 @@ struct Flags {
             return f.val & (1 << idx);
         }
 
+        template<typename T>
+        const_accessor operator=(const T &) = delete;
+
     protected:
         const_accessor(const Flags &f, uint8_t idx) : f(f), idx(idx)
         {}

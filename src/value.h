@@ -46,6 +46,17 @@ struct CachedValue {
         return (!remote_valid()) && reread_ctr.should_retry();
     }
 
+    // just hacks-in a remote value without tripping over the flags. used to
+    // hint in a value for other purposes than synchronization
+    // also re-introduces efforts to get the value from client.
+    // this is a weird logic but does the trick - we use address for eeprom
+    // reading f.ex.
+    void ICACHE_FLASH_ATTR demand_remote(T val) {
+        remote = val;
+        remote_valid() = false;
+        reread_ctr.resume();
+    }
+
     void ICACHE_FLASH_ATTR set_remote(T val) {
         remote = val;
         remote_valid() = true;

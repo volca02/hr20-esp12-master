@@ -233,7 +233,7 @@ struct Path {
     ICACHE_FLASH_ATTR Path(uint8_t addr,
                            bool set_mode,
                            EEPROMAccess ea,
-                           uint8_t address)
+                           uint8_t ee_address)
         : addr(addr),
           day(0),
           slot(0),
@@ -241,7 +241,7 @@ struct Path {
           timer_topic(TIMER_NONE),
           set_mode(set_mode),
           eeprom_access(ea),
-          eeprom_address(address)
+          eeprom_address(ee_address)
     {}
 
     ICACHE_FLASH_ATTR static Str compose_set_prefix_wildcard(Buffer b) {
@@ -753,14 +753,15 @@ struct MQTTPublisher {
             return;
         }
 
-        // whatever happens, we transition to next state
-        states[addr] &= ~CHANGE_EEPROM;
-        next_major(); // moves to next major state
 
         // doing this by hand, the value is composite
         auto &val = hr->eeprom;
         Path p{addr, false, mqtt::EA_READ, val.get_remote().address};
         publish(p, val);
+
+        // whatever happens, we transition to next state
+        states[addr] &= ~CHANGE_EEPROM;
+        next_major(); // moves to next major state
     }
 
 
@@ -942,8 +943,7 @@ struct MQTTPublisher {
                 hr->eeprom.set_requested({p.eeprom_address, ival});
             } else if (p.eeprom_access == EA_READ) {
                 // we got a re-read request, we do it without questioning
-                hr->eeprom.set_remote({p.eeprom_address, 0x0});
-                hr->eeprom.remote_valid() = false; // we invalidate it again, so it's re-read
+                hr->eeprom.demand_remote({p.eeprom_address, 0x0});
             } else {
                 ERR(MQTT_INVALID_TOPIC);
                 ok = false;
