@@ -746,22 +746,32 @@ struct MQTTPublisher {
         // TOO VERBOSE
         DBG("(ME %u)", addr);
 #endif
-
         auto *hr = master.model[addr];
         if (!hr) {
             ERR(MQTT_INVALID_CLIENT);
             return;
         }
 
+        // playloads of 16 addresses
+        for (unsigned cnt = 0; cnt < 16; ++cnt) {
+            Path p{addr, false, mqtt::EA_READ, state_min};
 
-        // doing this by hand, the value is composite
-        auto &val = hr->eeprom;
-        Path p{addr, false, mqtt::EA_READ, val.get_remote().address};
-        publish(p, val);
+            auto &rec = hr->eeprom[state_min];
 
-        // whatever happens, we transition to next state
-        states[addr] &= ~CHANGE_EEPROM;
-        next_major(); // moves to next major state
+            // only publish remote-valid values
+            if (rec.remote_valid() && !rec.published()) {
+                publish(p, hr->eeprom[state_min]);
+            }
+
+            ++state_min;
+
+            if (state_min >= EEPROM_SIZE) {
+                // whatever happens, we transition to next state
+                states[addr] &= ~CHANGE_EEPROM;
+                next_major(); // moves to next major state
+                break;
+            }
+        }
     }
 
 
@@ -940,10 +950,13 @@ struct MQTTPublisher {
                     ok = false;
                     break;
                 }
-                hr->eeprom.set_requested({p.eeprom_address, ival});
+                hr->eeprom[p.eeprom_address].set_requested(ival);
             } else if (p.eeprom_access == EA_READ) {
                 // we got a re-read request, we do it without questioning
-                hr->eeprom.demand_remote({p.eeprom_address, 0x0});
+                // we unmask the value in case it was not seen since reboot
+                // and also invalidate remote in case it was already read...
+                hr->eeprom[p.eeprom_address].masked() = false;
+                hr->eeprom[p.eeprom_address].remote_valid() = false;
             } else {
                 ERR(MQTT_INVALID_TOPIC);
                 ok = false;
@@ -973,6 +986,9 @@ struct MQTTPublisher {
         }
         default: ERR(MQTT_INVALID_TOPIC); return;
         }
+
+        // not an error. change happened on the client model, sync is lost
+        if (ok) hr->synced = false;
 
         EVENT_ARG(MQTT_CALLBACK, p.as_uint());
         DBG("(MQTT %d %d %d)", p.addr, p.as_uint(), ok ? 1 : 0);

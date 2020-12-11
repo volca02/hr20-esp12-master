@@ -470,7 +470,7 @@ protected:
         if (!hr) return ERR_MODEL;
 
         hr->last_contact = rd_time;
-        hr->eeprom.set_remote({eeaddr, eeval});
+        hr->eeprom[eeaddr].set_remote(eeval);
 
         // callback to publish the changes. we use frequent here, no big deal
         if (on_change_cb) on_change_cb(addr, CHANGE_EEPROM);
@@ -539,15 +539,22 @@ protected:
             send_set_menu_locked(addr, hr.menu_locked);
         }
 
-        // read on eeprom?
-        if (hr.eeprom.needs_read()) {
-            synced = false;
-            flags |= 8;
-            send_get_eeprom(addr, hr.eeprom);
-        } else if (hr.eeprom.needs_write()) {
-            synced = false;
-            flags |= 8;
-            send_set_eeprom(addr, hr.eeprom);
+        // only allow queueing 8 eeprom accesses at a time
+        uint8_t ee_ctr = MAX_QUEUE_EEPROM;
+
+        // read/write on eeprom?
+        for (unsigned ee_addr = 0; ee_addr < EEPROM_SIZE; ++ee_addr) {
+            if (hr.eeprom[ee_addr].needs_read()) {
+                synced = false;
+                flags |= 8;
+                send_get_eeprom(addr, ee_addr);
+                if (!(--ee_ctr)) break;
+            } else if (hr.eeprom[ee_addr].needs_write()) {
+                synced = false;
+                flags |= 8;
+                send_set_eeprom(addr, ee_addr, hr.eeprom[ee_addr]);
+                if (!(--ee_ctr)) break;
+            }
         }
 
         // only allow queueing 8 timers to save time
@@ -681,7 +688,7 @@ protected:
     }
 
     void ICACHE_FLASH_ATTR send_set_eeprom(
-            uint8_t addr, SyncedValue<EEPROMReq> &eeprom)
+            uint8_t addr, uint8_t ee_addr, SyncedValue<uint8_t> &eeprom)
     {
 #ifdef VERBOSE
         DBG("   * EEPROM S %u", addr);
@@ -690,13 +697,12 @@ protected:
         if (!p) return;
 
         p->push('S');
-        auto &req = eeprom.get_requested();
-        p->push(req.address);
-        p->push(req.value);
+        p->push(ee_addr);
+        p->push(eeprom.get_requested());
     }
 
     void ICACHE_FLASH_ATTR send_get_eeprom(
-            uint8_t addr, SyncedValue<EEPROMReq> &eeprom)
+            uint8_t addr, uint8_t ee_addr)
     {
 #ifdef VERBOSE
         DBG("   * EEPROM G %u", addr);
@@ -707,8 +713,7 @@ protected:
         p->push('G');
         // address is validly stored in remote, eventhough complete value is
         // invalidated
-        const auto &rem = eeprom.get_remote();
-        p->push(rem.address);
+        p->push(ee_addr);
     }
 
 

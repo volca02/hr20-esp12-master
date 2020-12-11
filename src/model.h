@@ -31,7 +31,8 @@ using TimerSlot = SyncedValue<Timer>;
 struct HR20 {
     HR20() {
         // we don't want to read eeprom by default. only when requested
-        eeprom.remote_valid() = true;
+        for (unsigned a = 0; a < EEPROM_SIZE; ++a)
+            eeprom[a].masked() = true;
     }
 
     HR20(const HR20 &) = delete; // not copyable
@@ -55,8 +56,8 @@ struct HR20 {
     SyncedValue<bool>     auto_mode;
     // false unlocked, true locked - L[01]/L[00]
     SyncedValue<bool>     menu_locked;
-    // single address read/write request to eeprom
-    SyncedValue<EEPROMReq> eeprom;
+    // whole-eeprom image with lazy loading
+    SyncedValue<uint8_t> eeprom[EEPROM_SIZE];
 
     // true if one or more of the synced values up here need to be written to client
     bool needs_basic_value_sync() const {

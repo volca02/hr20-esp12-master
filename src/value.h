@@ -32,9 +32,10 @@ struct CachedValue {
     // not using values but bit indices here!
     // maximum is 7!
     enum ValueFlags {
-        REMOTE_VALID  = 1,
-        PUBLISHED     = 2,
-        SUBSCRIBED    = 3
+        REMOTE_VALID  = 0,
+        PUBLISHED     = 1,
+        SUBSCRIBED    = 2,
+        MASKED        = 3
     };
 
     CachedValue() : reread_ctr() {
@@ -43,18 +44,7 @@ struct CachedValue {
 
     bool ICACHE_FLASH_ATTR needs_read() {
         // TODO: Too old values could be re-read here by forcing true return val
-        return (!remote_valid()) && reread_ctr.should_retry();
-    }
-
-    // just hacks-in a remote value without tripping over the flags. used to
-    // hint in a value for other purposes than synchronization
-    // also re-introduces efforts to get the value from client.
-    // this is a weird logic but does the trick - we use address for eeprom
-    // reading f.ex.
-    void ICACHE_FLASH_ATTR demand_remote(T val) {
-        remote = val;
-        remote_valid() = false;
-        reread_ctr.resume();
+        return !remote_valid() && !masked() && reread_ctr.should_retry();
     }
 
     void ICACHE_FLASH_ATTR set_remote(T val) {
@@ -90,6 +80,14 @@ struct CachedValue {
         return flags[REMOTE_VALID];
     }
 
+    ICACHE_FLASH_ATTR Flags::accessor masked() {
+        return flags[MASKED];
+    };
+
+    ICACHE_FLASH_ATTR Flags::const_accessor masked() const {
+        return flags[MASKED];
+    }
+
     ICACHE_FLASH_ATTR Str to_str(Buffer buf) const {
         return Converter::to_str(buf, remote);
     }
@@ -107,6 +105,8 @@ struct SyncedValue : public CachedValue<T, CvT> {
     using Converter = CvT;
     using Base      = CachedValue<T, CvT>;
 
+    // these have to be different than base flags on base class, because we share
+    // the flag byte
     enum ValueFlags {
         REQUESTED_SET = 4 // used in synced value, this means requested value was set and not yet propagated
     };

@@ -63,11 +63,16 @@ constexpr const int8_t RESEND_CYCLES = 2;
 
 // Max. number of timers queued per one packet exchange
 constexpr const int8_t MAX_QUEUE_TIMERS = 8;
+// Max. count of eeprom accesses queued per one client roundtrip
+constexpr const int8_t MAX_QUEUE_EEPROM = 8;
 
 // Max. count of HR clients
 constexpr const uint8_t MAX_HR_COUNT = 8;
 // Max. address (first invalid address, to be precise)
 constexpr const uint8_t MAX_HR_ADDR  = 30;
+
+// size of eeprom image, cached
+constexpr const uint16_t EEPROM_SIZE = 256;
 
 // Max. count of HR clients (and a max addr)
 #define c2temp(c) (c*2)
