@@ -35,56 +35,60 @@ struct CachedValue {
         REMOTE_VALID  = 0,
         PUBLISHED     = 1,
         SUBSCRIBED    = 2,
-        MASKED        = 3
+        MASKED        = 3,
+        // 4 is used in descendant as write request flag
+        CTR_POS       = 5 // position of the counter portion of the flags
     };
 
-    CachedValue() : reread_ctr() {
-        reread_ctr.resume(); // we need to know the value immediately if possible
-    }
+    using flags_type = Flags<REREAD_CYCLES, CTR_POS>;
+    using flag_accessor       = typename flags_type::accessor;
+    using flag_const_accessor = typename flags_type::const_accessor;
+
+    CachedValue() {}
 
     bool ICACHE_FLASH_ATTR needs_read() {
         // TODO: Too old values could be re-read here by forcing true return val
-        return !remote_valid() && !masked() && reread_ctr.should_retry();
+        return !remote_valid() && !masked() && flags.should_retry();
     }
 
     void ICACHE_FLASH_ATTR set_remote(T val) {
         remote = val;
         remote_valid() = true;
         published()    = false;
-        reread_ctr.pause();
+        flags.reset_counter();
     }
 
     T ICACHE_FLASH_ATTR get_remote() const { return remote; }
 
-    ICACHE_FLASH_ATTR Flags::accessor published() {
+    ICACHE_FLASH_ATTR flag_accessor published() {
         return flags[PUBLISHED];
     }
 
-    ICACHE_FLASH_ATTR Flags::const_accessor published() const {
+    ICACHE_FLASH_ATTR flag_const_accessor published() const {
         return flags[PUBLISHED];
     }
 
-    ICACHE_FLASH_ATTR Flags::accessor subscribed() {
+    ICACHE_FLASH_ATTR flag_accessor subscribed() {
         return flags[SUBSCRIBED];
     }
 
-    ICACHE_FLASH_ATTR Flags::const_accessor subscribed() const {
+    ICACHE_FLASH_ATTR flag_const_accessor subscribed() const {
         return flags[SUBSCRIBED];
     }
 
-    ICACHE_FLASH_ATTR Flags::accessor remote_valid() {
+    ICACHE_FLASH_ATTR flag_accessor remote_valid() {
         return flags[REMOTE_VALID];
     };
 
-    ICACHE_FLASH_ATTR Flags::const_accessor remote_valid() const {
+    ICACHE_FLASH_ATTR flag_const_accessor remote_valid() const {
         return flags[REMOTE_VALID];
     }
 
-    ICACHE_FLASH_ATTR Flags::accessor masked() {
+    ICACHE_FLASH_ATTR flag_accessor masked() {
         return flags[MASKED];
     };
 
-    ICACHE_FLASH_ATTR Flags::const_accessor masked() const {
+    ICACHE_FLASH_ATTR flag_const_accessor masked() const {
         return flags[MASKED];
     }
 
@@ -93,8 +97,7 @@ struct CachedValue {
     }
 
 protected:
-    Flags flags;
-    RequestDelay<REREAD_CYCLES> reread_ctr;
+    flags_type flags;
     T remote;
 };
 
@@ -111,16 +114,16 @@ struct SyncedValue : public CachedValue<T, CvT> {
         REQUESTED_SET = 4 // used in synced value, this means requested value was set and not yet propagated
     };
 
-    ICACHE_FLASH_ATTR Flags::accessor is_requested_set() {
+    ICACHE_FLASH_ATTR typename Base::flag_accessor is_requested_set() {
         return this->flags[REQUESTED_SET];
     };
 
-    ICACHE_FLASH_ATTR Flags::const_accessor is_requested_set() const {
+    ICACHE_FLASH_ATTR typename Base::flag_const_accessor is_requested_set() const {
         return this->flags[REQUESTED_SET];
     }
 
     bool ICACHE_FLASH_ATTR needs_write() {
-        return (is_requested_set()) && (resend_ctr.should_retry());
+        return (is_requested_set()) && (Base::flags.should_retry());
     }
 
     T& ICACHE_FLASH_ATTR get_requested() { return requested; }
@@ -132,14 +135,12 @@ struct SyncedValue : public CachedValue<T, CvT> {
         // Do this later on if it proves to be robust anyway.
         requested = val;
         is_requested_set() = true;
-        // resume the send requests
-        resend_ctr.resume();
+        Base::flags.reset_counter();
     }
 
     void ICACHE_FLASH_ATTR reset_requested() {
         this->requested = this->remote;
         is_requested_set() = false;
-        resend_ctr.pause();
     }
 
     // override for synced values - confirmations reset req_time
@@ -173,7 +174,6 @@ struct SyncedValue : public CachedValue<T, CvT> {
 
 private:
     T requested;
-    RequestDelay<RESEND_CYCLES> resend_ctr;
 };
 
 } // namespace hr20

@@ -55,7 +55,10 @@ private:
     int8_t counter;
 };
 
-// 8bit flags packed in uint8_t
+/** 8bit flags packed in uint8_t, with specified high bits used as a small
+ *  counter.
+ */
+template<uint8_t RETRY_STEPS, uint8_t CTR_POS>
 struct Flags {
     class const_accessor;
 
@@ -110,6 +113,29 @@ struct Flags {
 
     accessor operator[](uint8_t flag) {
         return {*this, flag};
+    }
+
+    uint8_t get_counter() const {
+        return val >> CTR_POS;
+    }
+
+    uint8_t set_counter(uint8_t value) {
+        val = (val & ((1 << CTR_POS) - 1)) | (value << CTR_POS);
+    }
+
+    void reset_counter() {
+        set_counter(0);
+    }
+
+    bool should_retry() {
+        uint8_t counter = get_counter();
+        if (counter == 0) {
+            set_counter(RETRY_STEPS);
+            return true;
+        }
+
+        set_counter(counter - 1);
+        return false;
     }
 
 private:
