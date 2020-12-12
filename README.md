@@ -11,12 +11,12 @@ Compared to the rfmsrc variant of OpenHR20, this implementation enables direct c
 of the HR20 clients using only ESP8266 and a connected radio module RFM12, with no additional computer
 necessary.
 
-To use this project, you will need a set of 1-N HR20 Rondostat units modified with RFM12 radio modules 
+To use this project, you will need a set of 1-N HR20 Rondostat units modified with RFM12 radio modules
 (and programmed with rfmsrc variant of OpenHR20), ESP8266 and a RFM12b module for the master.
 
 The project is now able to serve as a full master on the wireless network.
 
-Small things are still missing before the project is completely finished - notably a reconfiguration button 
+Small things are still missing before the project is completely finished - notably a reconfiguration button
 handling and a convenience Android client (setting timers via mqtt would be a nightmare).
 
 ## HW configuration
@@ -37,3 +37,42 @@ The whole project - all files included is/are licensed with GPL2 license. A part
 
 ## Building
 The project is based around platformio - so please use that to build it.
+
+## First run
+The project starts a Wifi AP every time it reboots, so configuration is possible via a mobile phone. Settings are also available by clicking the "configuration" link in project's webserver page.
+
+## MQTT Structure
+The project defaults to a mqtt interface. The whole subtree starts with a user specified prefix (settable in configuration).
+
+Read subtree:
+```
+Read only subtree:
+
+/PREFIX/ADDRESS/average_temp
+...            /battery         - battery voltage
+...            /error           - error code, as received from client
+...            /lock            - button lock status
+...            /mode            - automatic/manual mode
+...            /requested_temp  - requested temperature XX.X
+...            /valve_wanted    - current setting of the valve
+...            /window          - window detection status
+...            /state           - json structure with common values (auto, lock, window, temp, bat,...)
+                                - {"auto":false,"lock":false,"window":false,"temp":21.46,"bat":2.575,"temp_wtd":21.0,"temp_wset":0.0,"valve_wtd":43,"error":0,"last_seen":1607780775,"st":2}
+...            /last_seen       - unix time of the last incoming data from the client
+
+...            /eeprom/ADDR     - subtree containing read values from the settings EEPROM
+
+...            /timers/DAY/SLOT/time - time for the set slot
+...                            /mode - mode for the selected slot 0-3
+
+Settings subtree: These are write-only values:
+
+/PREFIX/set/ADDRESS/requested_temp
+...                /mode
+...                /lock
+...                /eeprom/EEPROM_ADDR/read   - ignores the topic contents, requests eeprom read for the specified address
+...                                   /write  - writes the set decadic value (topic content) to specified eeprom settings memory address
+...                /timers/DAY/SLOT/time      - sets time for given DAY/SLOT
+...                                /mode      - sets mode for given DAY/SLOT
+
+```
