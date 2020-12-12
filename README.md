@@ -44,7 +44,6 @@ The project starts a Wifi AP every time it reboots, so configuration is possible
 ## MQTT Structure
 The project defaults to a mqtt interface. The whole subtree starts with a user specified prefix (settable in configuration).
 
-Read subtree:
 ```
 Read only subtree:
 
@@ -60,7 +59,7 @@ Read only subtree:
                                 - {"auto":false,"lock":false,"window":false,"temp":21.46,"bat":2.575,"temp_wtd":21.0,"temp_wset":0.0,"valve_wtd":43,"error":0,"last_seen":1607780775,"st":2}
 ...            /last_seen       - unix time of the last incoming data from the client
 
-...            /eeprom/ADDR     - subtree containing read values from the settings EEPROM
+...            /eeprom/ADDR     - subtree containing read values from the settings EEPROM after issuing read/write commands
 
 ...            /timers/DAY/SLOT/time - time for the set slot
 ...                            /mode - mode for the selected slot 0-3
@@ -70,8 +69,8 @@ Settings subtree: These are write-only values:
 /PREFIX/set/ADDRESS/requested_temp
 ...                /mode
 ...                /lock
-...                /eeprom/EEPROM_ADDR/read   - ignores the topic contents, requests eeprom read for the specified address
-...                                   /write  - writes the set decadic value (topic content) to specified eeprom settings memory address
+...                /eeprom/EEPROM_ADDR/read   - ignores the topic contents, requests eeprom read for the specified address, after success sets the eeprom/ADDR topic in read subtree with set value
+...                                   /write  - writes the set decadic value (topic content) to specified eeprom settings memory address, after success sets the eeprom/ADDR topic in read subtree with set value
 ...                /timers/DAY/SLOT/time      - sets time for given DAY/SLOT
 ...                                /mode      - sets mode for given DAY/SLOT
 
