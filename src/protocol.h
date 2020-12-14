@@ -230,6 +230,8 @@ protected:
         // bitmap of encountered events
         uint16_t bitmap = 0;
 
+        DBGI("(R %d", (int)addr);
+
         while (!packet.empty()) {
             // the first byte here is command
             auto c = packet.pop();
@@ -241,6 +243,8 @@ protected:
                 return false;
             }
 */
+            DBGI(" %c", c);
+
             switch (c) {
             case 'V':
                 bitmap |= PROTO_CMD_VER;
@@ -272,13 +276,17 @@ protected:
                 err |= on_reboot(addr, packet); break;
             default:
                 ERR(PROTO_UNKNOWN_SEQUENCE);
+                DBG(" !)");
                 return false;
             }
 
             if (err != OK) {
+                DBG(" ~)");
                 return false;
             }
         }
+
+        DBG(")");
 
         EVENT_ARG(PROTO_HANDLED_OPS, bitmap);
 
@@ -520,64 +528,87 @@ protected:
         // shows up
         unsigned flags = 0;
 
+        DBGI("(Q %d", (int)addr);
+
         // wanted temperature
         if (hr.temp_wanted.needs_write()) {
             synced = false;
             flags |= 1;
+            DBGI(" T");
             send_set_temp(addr, hr.temp_wanted);
         }
 
         if (hr.auto_mode.needs_write()) {
             synced = false;
             flags |= 2;
+            DBGI(" A");
             send_set_auto_mode(addr, hr.auto_mode);
         }
 
         if (hr.menu_locked.needs_write()) {
             synced = false;
             flags |= 4;
+            DBGI(" L");
             send_set_menu_locked(addr, hr.menu_locked);
         }
 
-        // only allow queueing 8 eeprom accesses at a time
+        // only allow queueing N eeprom accesses at a time
         uint8_t ee_ctr = MAX_QUEUE_EEPROM;
 
         // read/write on eeprom?
         for (unsigned ee_addr = 0; ee_addr < EEPROM_SIZE; ++ee_addr) {
-            if (hr.eeprom[ee_addr].needs_read()) {
+            auto &eeprom_slot = hr.eeprom[ee_addr];
+            if (eeprom_slot.needs_read()) {
                 synced = false;
                 flags |= 8;
+                DBGI(" RE");
                 send_get_eeprom(addr, ee_addr);
                 if (!(--ee_ctr)) break;
-            } else if (hr.eeprom[ee_addr].needs_write()) {
+            } else if (eeprom_slot.needs_write()) {
                 synced = false;
                 flags |= 8;
-                send_set_eeprom(addr, ee_addr, hr.eeprom[ee_addr]);
+                DBGI(" WE");
+                send_set_eeprom(addr, ee_addr, eeprom_slot);
                 if (!(--ee_ctr)) break;
             }
         }
 
-        // only allow queueing 8 timers to save time
-        uint8_t tmr_ctr = MAX_QUEUE_TIMERS;
+        // only read timers if we didn't handle eeprom ops.
+        // otherwise the client gets overhelmed
+        if (ee_ctr == MAX_QUEUE_EEPROM) {
+            // only allow queueing 8 timers to save time
+            uint8_t tmr_ctr = MAX_QUEUE_TIMERS;
 
-        // get timers if we don't have them, set them if change happened
-        for (uint8_t dow = 0; dow < 8; ++dow) {
-            for (uint8_t slot = 0; slot < TIMER_SLOTS_PER_DAY; ++slot) {
-                auto &timer = hr.timers[dow][slot];
-                if (timer.needs_read()) {
-                    flags |= 16;
-                    synced = hr.synced = false; // shortcut, we might return
-                    send_get_timer(addr, dow, slot, timer);
-                    if (!(--tmr_ctr)) return;
-                }
-                if (timer.needs_write()) {
-                    flags |= 32;
-                    synced = hr.synced = false;
-                    send_set_timer(addr, dow, slot, timer);
-                    if (!(--tmr_ctr)) return;
+            // get timers if we don't have them, set them if change happened
+            for (uint8_t dow = 0; dow < 8; ++dow) {
+                for (uint8_t slot = 0; slot < TIMER_SLOTS_PER_DAY; ++slot) {
+                    auto &timer = hr.timers[dow][slot];
+                    if (timer.needs_read()) {
+                        flags |= 16;
+                        synced = hr.synced = false; // shortcut, we might return
+                        DBGI(" RT");
+                        send_get_timer(addr, dow, slot, timer);
+                        if (!(--tmr_ctr)) {
+                            DBG(")");
+                            return;
+                        }
+                    }
+                    if (timer.needs_write()) {
+                        flags |= 32;
+                        synced = hr.synced = false;
+                        DBGI(" WT");
+                        send_set_timer(addr, dow, slot, timer);
+                        if (!(--tmr_ctr)) {
+                            DBG(")");
+                            return;
+                        }
+                    }
                 }
             }
         }
+
+        // close the debug statement
+        DBG(")");
 
         // maybe we didn't need anything? In that case consider the client
         // synced. We will skip any of these in the force flags/addresses
