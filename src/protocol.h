@@ -617,7 +617,9 @@ protected:
             // report the client is fully synced
             DBG("(OK %d)", addr);
         } else {
-            DBG("(WAIT %d %d)", addr, flags);
+            if (!synced) {
+                DBG("(WAIT %d %d)", addr, flags);
+            }
         }
 
         // nothing was sent, so send an acknowledge if needed

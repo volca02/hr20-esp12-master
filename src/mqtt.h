@@ -754,23 +754,21 @@ struct MQTTPublisher {
 
         // playloads of 16 addresses
         for (unsigned cnt = 0; cnt < 16; ++cnt) {
-            Path p{addr, false, mqtt::EA_READ, state_min};
-
-            auto &rec = hr->eeprom[state_min];
-
-            // only publish remote-valid values
-            if (rec.remote_valid() && !rec.published()) {
-                publish(p, hr->eeprom[state_min]);
-            }
-
-            ++state_min;
-
             if (state_min >= EEPROM_SIZE) {
+                DBG("(PUB E)");
                 // whatever happens, we transition to next state
                 states[addr] &= ~CHANGE_EEPROM;
                 next_major(); // moves to next major state
                 break;
             }
+
+            Path p{addr, false, mqtt::EA_READ, state_min};
+
+            auto &rec = hr->eeprom[state_min];
+
+            // only publish remote-valid values
+            publish(p, rec);
+            ++state_min;
         }
     }
 
@@ -855,6 +853,7 @@ struct MQTTPublisher {
         }
 #endif
         default:
+            DBG("(PUB F)");
             // clear out the change bit
             states[addr] &= ~CHANGE_FREQUENT;
             next_major(); // moves to next major state
@@ -886,6 +885,7 @@ struct MQTTPublisher {
         // if we overshot the day counter, we switch to next
         // major slot (or client in this case)
         if (day >= 8) {
+            DBG("(PUB T)");
             next_major();
             return;
         }
@@ -1015,9 +1015,9 @@ struct MQTTPublisher {
 
     // Publisher state machine
     uint8_t addr = 0;
-    uint8_t state_maj = 0; // state category (FREQUENT, CALENDAR)
-    uint8_t state_min = 0; // state detail (depends on major state)
-    time_t last_conn  = 0; // last connection attempt
+    uint8_t  state_maj = 0; // state category (FREQUENT, CALENDAR)
+    uint16_t state_min = 0; // state detail (depends on major state)
+    time_t   last_conn = 0; // last connection attempt
 };
 
 } // namespace mqtt
