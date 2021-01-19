@@ -5,7 +5,7 @@
 
 <style>
 body {
-    background-color: #121012;
+    background-color: #080808;
     padding: 20px;
     font-family: Helvetica;
 }
@@ -55,11 +55,21 @@ body {
     color: #6a6;
     border: 1px solid;
     border-color: #111;
-    border-radius: 3px;
-    width: 200px;
+    border-radius: 4px;
+    width: 150px;
     padding: 2px;
     font-family: monospace;
     text-align: center;
+    cursor: pointer;
+}
+
+#config {
+    background: #333;
+    color: #6a6;
+    font-family: monospace;
+    text-align: center;
+    cursor: pointer;
+    text-decoration: none;
 }
 
 .client {
@@ -109,12 +119,12 @@ body {
 }
 
 .event {
-    background: #111;
+    background: #222;
     color: #aaa;
     font-family: monospace;
-    border: 1px solid;
-    border-color: #111;
-    border-radius: 0px;
+    border: 0px solid;
+    border-color: rgb(32, 31, 30);
+    border-radius: 2px;
     padding: 2px;
     height: 16px;
     font-size: 15px;
@@ -124,14 +134,8 @@ body {
 }
 
 .event:hover {
-    border-color: #666;
+    background: #444;
 }
-
-.error
-{
-    background: #300;
-}
-
 
 .event_type {
     float: left;
@@ -194,7 +198,7 @@ PREFIX = "/";
 // zero-pad to 0-4 chars
 function zpad(num, zrs) { return ("0000" + num).substr(-zrs,zrs); }
 
-Date.prototype.formatCustom = function(){
+Date.prototype.formatCustom = function() {
     return    zpad(this.getFullYear(),4) +
         "/" + zpad(this.getMonth() + 1,2) +
         "/" + zpad(this.getDate(),2) +
@@ -250,21 +254,25 @@ var event_list_offset = 0;
 function stream_events() {
     $.ajax(PREFIX + "events?offset=" + event_list_offset, {
       success: function(data) {
-          // remove old #more button
+          // remove old #more button and loader
           $('#more').remove();
-          $('#loader-events').css('visibility', 'hidden');
+          $('#loader-events').remove();
           append_events(data);
 
           if (Object(data["events"]).length == 10) {
               event_list_offset += 10;
               $('#events').append('<div id="more">load more</div>');
               $('#more').click(function () {
+	          // remove the more button
+	          $('#more').remove();
+	          // add new loader
+                  $('#events').append($('<div/>').attr("class", "lds-dual-ring").attr("id", "loader-events"));
                   stream_events();
               });
           }
       },
       error: function() {
-          $('#loader-events').css('visibility', 'hidden');
+          $('#loader-events').remove();
           $('#error').css('visibility', 'visible').append("Cannot list events</br>");
       }
     });
@@ -290,10 +298,12 @@ $(document).ready(function(){
 </head>
 <body>
 <div id="error"></div>
-<div id="util"><a href="config">configuration</a></div>
+<div id="util"><a href="config" id="config">configuration</a></div>
+
 <div style="width:100%">
-<div id="clients"><h2>Clients</h2><div id="loader-clients" class="lds-dual-ring"></div></div>
-<div id="events"><h2>Events</h2><div id="loader-events" class="lds-dual-ring"></div></div></div>
+  <div id="clients"><h2>Clients</h2><div id="loader-clients" class="lds-dual-ring"></div></div>
+  <div id="events"><h2>Events</h2><div id="loader-events" class="lds-dual-ring"></div></div>
+</div>
 
 </body>
 </html>
