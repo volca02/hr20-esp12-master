@@ -124,11 +124,6 @@ ICACHE_FLASH_ATTR void Web::begin() {
 
     server.onNotFound( [&] { iotWebConf.handleNotFound(); });
 
-#ifdef DEBUG
-    // contains passwords, so we only publish this in debug mode
-    server.serveStatic("/conf", SPIFFS, "/config.json");
-#endif
-
     server.begin();
 }
 

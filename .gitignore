@@ -6,4 +6,5 @@
 .ccls
 .ccls-root
 .pio
+platformio_overrides.ini
 **/*~

@@ -38,6 +38,14 @@ The whole project - all files included is/are licensed with GPL2 license. A part
 ## Building
 The project is based around platformio - so please use that to build it.
 
+
+```
+pio run
+pio run -t uploadfs
+pio run -t upload
+```
+
+
 ## First run
 The project starts a Wifi AP every time it reboots, so configuration is possible via a mobile phone. Settings are also available by clicking the "configuration" link in project's webserver page.
 
