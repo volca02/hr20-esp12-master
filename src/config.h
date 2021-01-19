@@ -85,8 +85,9 @@ constexpr const uint8_t TIMER_SLOTS_PER_DAY = 8;
 // timer has 7 slots for days and 1 slot extra for repeated everyday mode
 constexpr const uint8_t TIMER_DAYS = 8;
 
-// should we retain the published topics?
-constexpr const bool MQTT_RETAIN = true;
+// should we, by default, retain the published topics? Only last_seen
+// is forcefully retained, other topics are not.
+constexpr const bool MQTT_RETAIN = false;
 
 // Reconnect attempt every N seconds
 constexpr const time_t MQTT_RECONNECT_TIME = 10;

@@ -635,7 +635,8 @@ struct MQTTPublisher {
     template <typename T, typename CvT>
     ICACHE_FLASH_ATTR void publish(const Str &path,
                                    CachedValue<T, CvT> &val,
-                                   uint16_t hint) const
+                                   uint16_t hint,
+                                   bool retain = MQTT_RETAIN) const
     {
         if (val.published() || !val.remote_valid())
             return;
@@ -647,7 +648,7 @@ struct MQTTPublisher {
                            reinterpret_cast<const uint8_t *>(vstr.c_str()),
                            vstr.length(),
                            // retained
-                           MQTT_RETAIN))
+                           retain))
         {
             EVENT_ARG(MQTT_PUBLISH, hint);
         } else {
@@ -666,14 +667,17 @@ struct MQTTPublisher {
         publish(path.c_str(), val, p.as_uint());
     }
 
-    ICACHE_FLASH_ATTR void publish(const Path &p, const Str &val) const {
+    ICACHE_FLASH_ATTR void publish(const Path &p,
+                                   const Str &val,
+                                   bool retain = MQTT_RETAIN) const
+    {
         PathBuffer pb;
         auto path = p.compose(pb);
 
         if (client.publish(path.c_str(),
                            reinterpret_cast<const uint8_t *>(val.c_str()),
                            val.length(),
-                           MQTT_RETAIN))
+                           retain))
         {
             EVENT_ARG(MQTT_PUBLISH, p.as_uint());
         } else {
@@ -839,7 +843,7 @@ struct MQTTPublisher {
             cvt::ValueBuffer vb;
             StrMaker sm{vb};
             sm += hr->last_contact;
-            publish(p, sm.str());
+            publish(p, sm.str(), /*ratain*/true);
             NEXT_MIN_STATE;
         }
 #ifdef MQTT_JSON
