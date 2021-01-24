@@ -76,6 +76,8 @@ constexpr const uint16_t EEPROM_SIZE = 256;
 
 // Max. count of HR clients (and a max addr)
 #define c2temp(c) (c*2)
+constexpr const uint8_t TEMP_OFF = c2temp(5) - 1; // 4.5 C is "off"
+constexpr const uint8_t TEMP_OPEN = c2temp(30) + 1; // 30.5 C is "open"
 constexpr const uint8_t TEMP_MIN = c2temp(5);
 constexpr const uint8_t TEMP_MAX = c2temp(30);
 
@@ -87,7 +89,7 @@ constexpr const uint8_t TIMER_DAYS = 8;
 
 // should we, by default, retain the published topics? Only last_seen
 // is forcefully retained, other topics are not.
-constexpr const bool MQTT_RETAIN = false;
+constexpr const bool MQTT_RETAIN = true;
 
 // Reconnect attempt every N seconds
 constexpr const time_t MQTT_RECONNECT_TIME = 10;

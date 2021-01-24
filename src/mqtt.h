@@ -39,7 +39,7 @@ enum Topic {
     BAT     = 2,
     ERR     = 3,
     LOCK    = 4,
-    MODE    = 5,
+    AUTO    = 5,
     REQ_TMP = 6,
     VALVE_WTD = 7,
     WND       = 8,
@@ -47,6 +47,7 @@ enum Topic {
     TIMER     = 10,
     STATE     = 11,
     EEPROM    = 12,
+    MODE      = 13,
     INVALID_TOPIC = 255
 };
 
@@ -63,13 +64,22 @@ enum EEPROMAccess {
     INVALID_EEPROM_TOPIC = 255
 };
 
+enum Mode {
+    MODE_OFF = 0,
+    MODE_AUTO,
+    MODE_MANUAL,
+    MODE_OPEN,
+    INVALID_MODE_TYPE = 255
+};
+
 static const char *S_AVG_TMP   = "average_temp";
 static const char *S_BAT       = "battery";
 static const char *S_ERR       = "error";
 static const char *S_EEPROM     = "eeprom";
 static unsigned    S_EEPROM_LEN = 6;
 static const char *S_LOCK      = "lock";
-static const char *S_MODE      = "mode";
+static const char *S_MODE      = "mode"; // this is a OFF/MANUAL/AUTO mode info topic
+static const char *S_AUTO      = "auto";
 static const char *S_REQ_TMP   = "requested_temp"; // 14
 static const char *S_VALVE_WTD = "valve_wanted";
 static const char *S_WND       = "window";
@@ -90,6 +100,12 @@ static const char *S_SET_MODE   = "set";
 static const char *S_EA_READ  = "read";
 static const char *S_EA_WRITE = "write";
 
+// valve modes
+static const char *S_MODE_OFF    = "off";
+static const char *S_MODE_AUTO   = "auto";
+static const char *S_MODE_MANUAL = "manual";
+static const char *S_MODE_OPEN   = "open";
+
 constexpr const uint8_t MAX_MQTT_PATH_LENGTH = 128;
 using PathBuffer = BufferHolder<MAX_MQTT_PATH_LENGTH>;
 
@@ -100,6 +116,7 @@ ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     case ERR:       return S_ERR;
     case EEPROM:    return S_EEPROM;
     case LOCK:      return S_LOCK;
+    case AUTO:      return S_AUTO;
     case MODE:      return S_MODE;
     case REQ_TMP:   return S_REQ_TMP;
     case VALVE_WTD: return S_VALVE_WTD;
@@ -134,6 +151,7 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
     switch (*top) {
     case 'a':
         if (strcmp(top, S_AVG_TMP) == 0) return AVG_TMP;
+        if (strcmp(top, S_AUTO) == 0) return AUTO;
         return INVALID_TOPIC;
     case 'b':
         if (strcmp(top, S_BAT) == 0) return BAT;
@@ -148,7 +166,6 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         return INVALID_TOPIC;
     case 'm':
         if (strcmp(top, S_MODE) == 0) return MODE;
-        return INVALID_TOPIC;
     case 'r':
         if (strcmp(top, S_REQ_TMP) == 0) return REQ_TMP;
         return INVALID_TOPIC;
@@ -199,6 +216,25 @@ ICACHE_FLASH_ATTR static EEPROMAccess parse_eeprom_access(const char *top) {
     }
 
     return INVALID_EEPROM_TOPIC;
+}
+
+ICACHE_FLASH_ATTR static Mode parse_mode(const char *top) {
+    if (!top) return INVALID_MODE_TYPE;
+
+    if (top[0] == 'o') {
+        if (strcmp(top, S_MODE_OFF)  == 0) return MODE_OFF;
+        if (strcmp(top, S_MODE_OPEN) == 0) return MODE_OPEN;
+    }
+
+    if (top[0] == 'a') {
+        if (strcmp(top, S_MODE_AUTO) == 0) return MODE_AUTO;
+    }
+
+    if (top[0] == 'm') {
+        if (strcmp(top, S_MODE_MANUAL) == 0) return MODE_MANUAL;
+    }
+
+    return INVALID_MODE_TYPE;
 }
 
 // mqtt path parser/composer
@@ -802,7 +838,7 @@ struct MQTTPublisher {
 
         switch (state_min) {
         STATE(0):
-            p.topic = mqtt::MODE;
+            p.topic = mqtt::AUTO;
             publish_synced(p, hr->auto_mode);
             NEXT_MIN_STATE;
         STATE(1):
@@ -846,8 +882,26 @@ struct MQTTPublisher {
             publish(p, sm.str(), /*ratain*/true);
             NEXT_MIN_STATE;
         }
-#ifdef MQTT_JSON
         STATE(9): {
+            p.topic = mqtt::MODE;
+            cvt::ValueBuffer vb;
+            StrMaker sm{vb};
+
+            // Combining off/open and auto/manual for a simple HASS integration here
+            if (hr->temp_wanted.get_remote() == TEMP_OFF)
+                sm += S_MODE_OFF;
+            else if (hr->temp_wanted.get_remote() == TEMP_OPEN)
+                sm += S_MODE_OPEN;
+            else if (hr->auto_mode.get_remote())
+                sm += S_MODE_AUTO;
+            else
+                sm += S_MODE_MANUAL;
+
+            publish(p, sm.str());
+            NEXT_MIN_STATE;
+        }
+#ifdef MQTT_JSON
+        STATE(10): {
             p.topic = mqtt::STATE;
             BufferHolder<160> buf;
             StrMaker sm{buf};
@@ -856,6 +910,7 @@ struct MQTTPublisher {
             NEXT_MIN_STATE;
         }
 #endif
+
         default:
             DBG("(PUB F)");
             // clear out the change bit
@@ -942,7 +997,33 @@ struct MQTTPublisher {
 
         switch (p.topic) {
         case mqtt::REQ_TMP: ok = hr->temp_wanted.set_requested_from_str(val); break;
-        case mqtt::MODE: ok = hr->auto_mode.set_requested_from_str(val); break;
+        case mqtt::AUTO: ok = hr->auto_mode.set_requested_from_str(val); break;
+        case mqtt::MODE: {
+            // off will set temp to TEMP_OFF
+            auto mode = parse_mode(val.c_str());
+
+            switch (mode) {
+            case MODE_OFF: // off sets manual and 4.5 degrees
+                hr->auto_mode.set_requested(false);
+                hr->temp_wanted.set_requested(TEMP_OFF);
+                ok = true;
+                break;
+            case MODE_OPEN: // open sets over 30C and manual
+                hr->auto_mode.set_requested(false);
+                hr->temp_wanted.set_requested(TEMP_OPEN);
+                ok = true;
+                break;
+            case MODE_AUTO:
+                ok = true;
+                hr->auto_mode.set_requested(true); break;
+            case MODE_MANUAL:
+                ok = true;
+                hr->auto_mode.set_requested(false); break;
+            default:
+                ERR(MQTT_INVALID_TOPIC_VALUE);
+                ok = false;
+            }
+        }
         case mqtt::LOCK: ok = hr->menu_locked.set_requested_from_str(val); break;
         case mqtt::EEPROM: {
             //            ok = hr->eeprom;
