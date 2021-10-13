@@ -245,10 +245,10 @@ struct StrMaker {
 
     ICACHE_FLASH_ATTR StrMaker & operator += (long int i);
 
-    ICACHE_FLASH_ATTR StrMaker & operator += (time_t time) {
+/*    ICACHE_FLASH_ATTR StrMaker & operator += (time_t time) {
         return this->operator+=((long int)time);
     }
-
+*/
     ICACHE_FLASH_ATTR StrMaker & operator += (int i) {
         return this->operator+=((long int)i);
     }
