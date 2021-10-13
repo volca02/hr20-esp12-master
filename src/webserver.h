@@ -22,6 +22,7 @@
 #include <Arduino.h>
 // #include <ESP8266WebServer.h>
 #include <IotWebConf.h>
+#include <IotWebConfUsing.h>
 
 #include "config.h"
 #include "master.h"
@@ -55,18 +56,17 @@ protected:
     IotWebConf iotWebConf;
     HR20Master &master;
 
-    IotWebConfParameter rfm_pass;
-    IotWebConfSeparator separator1;
-    IotWebConfParameter ntp_server;
+    iotwebconf::ParameterGroup base_group;
+    iotwebconf::TextParameter rfm_pass;
+    iotwebconf::TextParameter ntp_server;
 
 #ifdef MQTT
-    IotWebConfSeparator separator2;
-
-    IotWebConfParameter mqtt_server;
-    IotWebConfParameter mqtt_port;
-    IotWebConfParameter mqtt_user;
-    IotWebConfParameter mqtt_pass;
-    IotWebConfParameter mqtt_topic;
+    iotwebconf::ParameterGroup mqtt_group;
+    iotwebconf::TextParameter mqtt_server;
+    iotwebconf::NumberParameter mqtt_port;
+    iotwebconf::TextParameter mqtt_user;
+    iotwebconf::PasswordParameter mqtt_pass;
+    iotwebconf::TextParameter mqtt_topic;
 #endif
 };
 

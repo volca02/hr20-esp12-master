@@ -65,20 +65,19 @@ ICACHE_FLASH_ATTR Web::Web(Config &config, HR20Master &master)
                  wifiInitialApPassword,
                  CONFIG_VERSION),
       master(master),
+      base_group("base_group", ""),
       rfm_pass("RFM Password", "rfm_pass", config.rfm_pass_hex, 17),
-      separator1(),
       ntp_server("NTP Server", "ntp_server", config.ntp_server, 40)
 #ifdef MQTT
       ,
-      separator2(),
+      mqtt_group("mqtt_group", ""),
       mqtt_server("MQTT Server", "mqtt_server", config.mqtt_server, 40),
       mqtt_port("MQTT Port",
                 "mqtt_port",
                 config.mqtt_port,
                 5,
-                "number",
                 "1883",
-                NULL,
+                nullptr,
                 "min='1' max='65535' step='1'"),
       mqtt_user("MQTT User", "mqtt_user", config.mqtt_user, 20),
       mqtt_pass("MQTT Password", "mqtt_pass", config.mqtt_pass, 20),
@@ -91,23 +90,25 @@ ICACHE_FLASH_ATTR void Web::begin() {
     SPIFFS.begin();
 
 //    iotWebConf.setConfigPin(CONFIG_BUTTON_PIN);
-    iotWebConf.addParameter(&rfm_pass);
-    iotWebConf.addParameter(&separator1);
-    iotWebConf.addParameter(&ntp_server);
+    base_group.addItem(&rfm_pass);
+    base_group.addItem(&ntp_server);
 
 #ifdef MQTT
-    iotWebConf.addParameter(&separator2);
-    iotWebConf.addParameter(&mqtt_server);
-    iotWebConf.addParameter(&mqtt_port);
-    iotWebConf.addParameter(&mqtt_user);
-    iotWebConf.addParameter(&mqtt_pass);
-    iotWebConf.addParameter(&mqtt_topic);
+    mqtt_group.addItem(&mqtt_server);
+    mqtt_group.addItem(&mqtt_port);
+    mqtt_group.addItem(&mqtt_user);
+    mqtt_group.addItem(&mqtt_pass);
+    mqtt_group.addItem(&mqtt_topic);
 #endif
 
+    iotWebConf.addParameterGroup(&base_group);
+#ifdef MQTT
+    iotWebConf.addParameterGroup(&mqtt_group);
+#endif
     // what is this?
     iotWebConf.getApTimeoutParameter()->visible = true;
 
-    iotWebConf.setFormValidator([&] { return validate_config(); });
+    iotWebConf.setFormValidator([&](iotwebconf::WebRequestWrapper*) { return validate_config(); });
     iotWebConf.setConfigSavedCallback([&] { master.config_updated(); });
 
     iotWebConf.init();
@@ -246,8 +247,8 @@ ICACHE_FLASH_ATTR void Web::handle_root() {
 
     // if we're in AP mode, display the config page
     auto state = iotWebConf.getState();
-    if (state == IOTWEBCONF_STATE_AP_MODE
-        || state == IOTWEBCONF_STATE_NOT_CONFIGURED)
+    if (state == iotwebconf::ApMode
+        || state == iotwebconf::NotConfigured)
     {
         DBG("(handle_ap_mode)");
         iotWebConf.handleConfig();
