@@ -19,6 +19,9 @@
 
 #pragma once
 
+#include <Arduino.h>
+#include <HardwareSerial.h>
+
 #ifdef DEBUG
 #define DBGI(...) do { Serial.printf(__VA_ARGS__); } while (0)
 #define DBG(...) do { Serial.printf(__VA_ARGS__); Serial.println(); } while (0)

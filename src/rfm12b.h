@@ -22,7 +22,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 
-#include "debug.h"
+#include "hr-debug.h"
 #include "queue.h"
 
 namespace hr20 {

@@ -22,7 +22,7 @@
 #include <Arduino.h>
 #include <string.h>
 
-#include "debug.h"
+#include "hr-debug.h"
 
 namespace hr20 {
 

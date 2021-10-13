@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "debug.h"
+#include "hr-debug.h"
 
 #define RESET_BUTTON_PIN 4
 #define WIFI_RESET_TIME 3000

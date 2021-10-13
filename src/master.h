@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include "debug.h"
+#include "hr-debug.h"
 #include "ntptime.h"
 #include "protocol.h"
 #include "rfm12b.h"
@@ -30,7 +30,7 @@ namespace hr20 {
 
 /// Implements the state machine for packet sending/retrieval and radio control.
 struct HR20Master {
-    ICACHE_FLASH_ATTR HR20Master(Config &config, ntptime::NTPTime &tm)
+    HR20Master(Config &config, ntptime::NTPTime &tm)
         : config(config),
           time(tm),
           crypto{time},

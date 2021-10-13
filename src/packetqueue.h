@@ -23,7 +23,7 @@
 
 #include "crypto.h"
 #include "queue.h"
-#include "debug.h"
+#include "hr-debug.h"
 #include "error.h"
 #include "eventlog.h"
 
@@ -44,7 +44,7 @@ struct PacketQ {
         SYNC_ADDR = 0x21 // MAX ADDR IS 0x20, we're fine here
     };
 
-    ICACHE_FLASH_ATTR PacketQ(crypto::Crypto &crypto, time_t packet_max_age)
+    PacketQ(crypto::Crypto &crypto, time_t packet_max_age)
         : crypto(crypto), que(), packet_max_age(packet_max_age)
     {}
 

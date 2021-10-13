@@ -22,7 +22,7 @@
 
 #include "config.h"
 #include "ntptime.h"
-#include "debug.h"
+#include "hr-debug.h"
 #include "master.h"
 #include "eventlog.h"
 #include "button.h"

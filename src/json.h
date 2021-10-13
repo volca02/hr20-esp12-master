@@ -49,15 +49,15 @@ struct Comma {
 };
 
 struct Element {
-    ICACHE_FLASH_ATTR Element(StrMaker &s)  : s(s)   {}
-    ICACHE_FLASH_ATTR Element(Element &e) : s(e.s) {}
-    ICACHE_FLASH_ATTR ~Element() {}
+    Element(StrMaker &s)  : s(s)   {}
+    Element(Element &e) : s(e.s) {}
+    ~Element() {}
     StrMaker &s;
 };
 
 struct Object : public Element {
-    ICACHE_FLASH_ATTR Object(StrMaker &s) : Element(s) { s += '{'; }
-    ICACHE_FLASH_ATTR Object(Object &o) : Element(o) { s += '{'; }
+    Object(StrMaker &s) : Element(s) { s += '{'; }
+    Object(Object &o) : Element(o) { s += '{'; }
 
     inline ~Object() {
         s += '}';
@@ -74,14 +74,14 @@ struct Object : public Element {
 };
 
 struct Array : public Element {
-    ICACHE_FLASH_ATTR Array(StrMaker &s)  : Element(s) { s += '['; }
-    ICACHE_FLASH_ATTR Array(Element &b) : Element(b) { s += '['; }
+    Array(StrMaker &s)  : Element(s) { s += '['; }
+    Array(Element &b) : Element(b) { s += '['; }
 
     ICACHE_FLASH_ATTR void element() {
         comma.next(s);
     }
 
-    ICACHE_FLASH_ATTR ~Array() {
+    ~Array() {
         s += ']';
     }
 

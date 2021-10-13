@@ -49,7 +49,7 @@ protected:
 
 /// immutable string that's using a borrowed buffer
 struct Str {
-    ICACHE_FLASH_ATTR Str(const char *ptr = nullptr, unsigned len = 0)
+    Str(const char *ptr = nullptr, unsigned len = 0)
         : ptr(ptr), len(len)
     {}
 
@@ -211,7 +211,7 @@ protected:
 
 /// appendable string composition helper
 struct StrMaker {
-    ICACHE_FLASH_ATTR StrMaker(Buffer buf)
+    StrMaker(Buffer buf)
         : ptr(buf.ptr), capacity(buf.len), pos(ptr)
     {}
 
@@ -244,6 +244,10 @@ struct StrMaker {
     }
 
     ICACHE_FLASH_ATTR StrMaker & operator += (long int i);
+
+    ICACHE_FLASH_ATTR StrMaker & operator += (time_t time) {
+        return this->operator+=((long int)time);
+    }
 
     ICACHE_FLASH_ATTR StrMaker & operator += (int i) {
         return this->operator+=((long int)i);

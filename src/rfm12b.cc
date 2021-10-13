@@ -19,7 +19,7 @@
 
 #include "rfm12b.h"
 #include "rfmdef.h"
-#include "debug.h"
+#include "hr-debug.h"
 #include "error.h"
 
 namespace hr20 {

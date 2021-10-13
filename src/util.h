@@ -119,7 +119,7 @@ struct Flags {
         return val >> CTR_POS;
     }
 
-    uint8_t set_counter(uint8_t value) {
+    void set_counter(uint8_t value) {
         val = (val & ((1 << CTR_POS) - 1)) | (value << CTR_POS);
     }
 

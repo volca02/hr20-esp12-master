@@ -23,7 +23,7 @@
 #include <WiFiClient.h>
 
 #include "config.h"
-#include "debug.h"
+#include "hr-debug.h"
 #include "error.h"
 #include "master.h"
 #include "util.h"
@@ -248,15 +248,15 @@ struct Path {
         prefix = pfx;
     }
 
-    ICACHE_FLASH_ATTR Path() {}
+    Path() {}
 
     // constructor for normal or timer topics
-    ICACHE_FLASH_ATTR Path(uint8_t addr,
-                           Topic t,
-                           bool set_mode = false,
-                           TimerTopic st = TIMER_NONE,
-                           uint8_t day   = 0,
-                           uint8_t slot  = 0)
+    Path(uint8_t addr,
+         Topic t,
+         bool set_mode = false,
+         TimerTopic st = TIMER_NONE,
+         uint8_t day   = 0,
+         uint8_t slot  = 0)
         : addr(addr),
           day(day),
           slot(slot),
@@ -266,10 +266,10 @@ struct Path {
     {}
 
     // this constructs eeprom access topics
-    ICACHE_FLASH_ATTR Path(uint8_t addr,
-                           bool set_mode,
-                           EEPROMAccess ea,
-                           uint8_t ee_address)
+    Path(uint8_t addr,
+         bool set_mode,
+         EEPROMAccess ea,
+         uint8_t ee_address)
         : addr(addr),
           day(0),
           slot(0),
@@ -558,8 +558,8 @@ struct Path {
 /// Publishes/receives topics in mqtt
 struct MQTTPublisher {
     // TODO: Make this configurable!
-    ICACHE_FLASH_ATTR MQTTPublisher(Config &config,
-                                    HR20Master &master)
+    MQTTPublisher(Config &config,
+                  HR20Master &master)
         : config(config),
           master(master),
           wifiClient(),

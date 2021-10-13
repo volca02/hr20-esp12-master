@@ -27,7 +27,7 @@
 
 #include <Time.h>
 
-#include "debug.h"
+#include "hr-debug.h"
 #include "error.h"
 #include "config.h"
 #include "eventlog.h"
