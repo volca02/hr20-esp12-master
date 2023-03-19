@@ -77,9 +77,19 @@ struct Str {
         return equals(other.ptr, other.len);
     }
 
+    bool operator==(const char *other) const {
+        return equals(other, strlen(other));
+    }
+
     bool operator!=(const Str &other) const {
         return !equals(other.ptr, other.len);
     }
+
+    bool operator!=(const char *other) const {
+        return !equals(other, strlen(other));
+    }
+
+    char operator[](size_t idx) const { return ptr[idx]; }
 
     bool equalsIgnoreCase(const char *buf) const {
         const char *p1 = ptr, *p2 = ptr;

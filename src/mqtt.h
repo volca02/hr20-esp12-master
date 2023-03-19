@@ -218,20 +218,20 @@ ICACHE_FLASH_ATTR static EEPROMAccess parse_eeprom_access(const char *top) {
     return INVALID_EEPROM_TOPIC;
 }
 
-ICACHE_FLASH_ATTR static Mode parse_mode(const char *top) {
-    if (!top) return INVALID_MODE_TYPE;
+ICACHE_FLASH_ATTR static Mode parse_mode(const Str &top) {
+    if (top == "") return INVALID_MODE_TYPE;
 
     if (top[0] == 'o') {
-        if (strcmp(top, S_MODE_OFF)  == 0) return MODE_OFF;
-        if (strcmp(top, S_MODE_OPEN) == 0) return MODE_OPEN;
+        if (top == S_MODE_OFF) return MODE_OFF;
+        if (top == S_MODE_OPEN) return MODE_OPEN;
     }
 
     if (top[0] == 'a') {
-        if (strcmp(top, S_MODE_AUTO) == 0) return MODE_AUTO;
+        if (top == S_MODE_AUTO) return MODE_AUTO;
     }
 
     if (top[0] == 'm') {
-        if (strcmp(top, S_MODE_MANUAL) == 0) return MODE_MANUAL;
+        if (top == S_MODE_MANUAL) return MODE_MANUAL;
     }
 
     return INVALID_MODE_TYPE;
@@ -1000,7 +1000,7 @@ struct MQTTPublisher {
         case mqtt::AUTO: ok = hr->auto_mode.set_requested_from_str(val); break;
         case mqtt::MODE: {
             // off will set temp to TEMP_OFF
-            auto mode = parse_mode(val.c_str());
+            auto mode = parse_mode(val);
 
             switch (mode) {
             case MODE_OFF: // off sets manual and 4.5 degrees
@@ -1015,14 +1015,17 @@ struct MQTTPublisher {
                 break;
             case MODE_AUTO:
                 ok = true;
-                hr->auto_mode.set_requested(true); break;
+                hr->auto_mode.set_requested(true);
+                break;
             case MODE_MANUAL:
                 ok = true;
-                hr->auto_mode.set_requested(false); break;
+                hr->auto_mode.set_requested(false);
+                break;
             default:
                 ERR(MQTT_INVALID_TOPIC_VALUE);
                 ok = false;
             }
+            break;
         }
         case mqtt::LOCK: ok = hr->menu_locked.set_requested_from_str(val); break;
         case mqtt::EEPROM: {
