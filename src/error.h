@@ -85,6 +85,8 @@ enum ErrorCode {
     MQTT_CALLBACK_BAD_ADDR,
     MQTT_CANT_PUBLISH,
     MQTT_INVALID_TOPIC_VALUE,
+    // discovery payload didn't fit the compose buffer (prefix too long?)
+    MQTT_HASS_OVERFLOW,
 
     // ========== NTP ==========
     // NTP errors

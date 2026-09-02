@@ -121,11 +121,15 @@ struct TempHalfC {
 
     ICACHE_FLASH_ATTR static bool from_str(const Str &val, uint8_t &tgt) {
         float f;
-        if (val.toFloat(f)) {
-            tgt = f * 2;
-            return true;
-        }
-        return false;
+        if (!val.toFloat(f)) return false;
+
+        // round to the 0.5C grid and clamp to the representable range
+        // (including the off/open magic values)
+        int t = (int)(f * 2.0f + 0.5f);
+        if (t < TEMP_OFF)  t = TEMP_OFF;
+        if (t > TEMP_OPEN) t = TEMP_OPEN;
+        tgt = static_cast<uint8_t>(t);
+        return true;
     }
 };
 

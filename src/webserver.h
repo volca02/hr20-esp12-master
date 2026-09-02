@@ -59,6 +59,7 @@ protected:
     iotwebconf::ParameterGroup base_group;
     iotwebconf::TextParameter rfm_pass;
     iotwebconf::TextParameter ntp_server;
+    iotwebconf::TextParameter thermo_names;
 
 #ifdef MQTT
     iotwebconf::ParameterGroup mqtt_group;

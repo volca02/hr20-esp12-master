@@ -186,6 +186,23 @@ struct ForceFlags {
     bool fat = false;
 };
 
+/// flags indexed by client address (addr 0 unused)
+struct AddrFlags {
+    ICACHE_FLASH_ATTR bool get(uint8_t addr) const {
+        return addr < MAX_HR_ADDR && (val & (1u << addr));
+    }
+
+    ICACHE_FLASH_ATTR void set(uint8_t addr) {
+        if (addr < MAX_HR_ADDR) val |= 1u << addr;
+    }
+
+    ICACHE_FLASH_ATTR void clear(uint8_t addr) {
+        if (addr < MAX_HR_ADDR) val &= ~(1u << addr);
+    }
+
+    uint32_t val = 0;
+};
+
 // categorizes the changes in HR20 model
 enum ChangeCategory {
     CHANGE_FREQUENT = 1,

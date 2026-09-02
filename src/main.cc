@@ -62,6 +62,11 @@ void setup(void) {
     // and loads the propper config values
     webserver.begin();
 
+#ifdef MQTT
+    // build the small addr->name table from the (just loaded) config
+    config.parse_thermo_names();
+#endif
+
     ntptime.begin();
     master.begin();
 

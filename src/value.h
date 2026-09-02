@@ -135,6 +135,10 @@ struct SyncedValue : public CachedValue<T, CvT> {
         // Do this later on if it proves to be robust anyway.
         requested = val;
         is_requested_set() = true;
+        // the broker's copy is stale from this moment on - the publisher
+        // will emit the requested value (optimistic) and, later, whatever
+        // the device actually reports
+        Base::published() = false;
         Base::flags.reset_counter();
     }
 

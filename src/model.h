@@ -52,6 +52,9 @@ struct HR20 {
 
     // temperature wanted - update A[XX] (0.5 degres accuracy)
     SyncedValue<uint8_t, cvt::TempHalfC>  temp_wanted;
+    // last usable (5..30C) setpoint in 0.5C units, 0 = unknown.
+    // Restored when switching out of off/open mode.
+    uint8_t last_setpoint = 0;
     // automatic/manual temperature selection - M[01]/M[00]
     SyncedValue<bool>     auto_mode;
     // false unlocked, true locked - L[01]/L[00]

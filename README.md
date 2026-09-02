@@ -50,33 +50,44 @@ pio run -t upload
 The project starts a Wifi AP every time it reboots, so configuration is possible via a mobile phone. Settings are also available by clicking the "configuration" link in project's webserver page.
 
 ## MQTT Structure
-The project defaults to a mqtt interface. The whole subtree starts with a user specified prefix (settable in configuration).
+The project defaults to a mqtt interface. The whole subtree starts with a user specified prefix (settable in configuration). Client addresses in topics are always two digits (zero padded).
+
+### Home Assistant autodiscovery
+For every discovered client the gateway publishes two *retained* discovery configs:
+
+* `homeassistant/climate/hr20_<ADDR>/config` - a climate entity (modes `off`/`heat`/`auto`, `heat` = manual mode)
+* `homeassistant/sensor/hr20_<ADDR>_bat/config` - a battery sensor (state on `<PREFIX>/<ADDR>/battery_pct`)
+
+Both entities are grouped into one device. The discovery payload declares the configured prefix once via the HA base-topic key (`"~"`), so all state/command topics in it are short relative specs (`~/##/...`). Discovery is published on (re)connect for all known clients and immediately when a new client is first seen over RF. If the configured prefix is so long that a discovery payload no longer fits, the publish is skipped and an `MQTT_HASS_OVERFLOW` error is logged (manual entity setup still works).
 
 ```
-Read only subtree:
+Read only / state subtree:
 
-/PREFIX/ADDRESS/average_temp
-...            /battery         - battery voltage
-...            /error           - error code, as received from client
-...            /lock            - button lock status
-...            /mode            - automatic/manual mode
-...            /requested_temp  - requested temperature XX.X
-...            /valve_wanted    - current setting of the valve
-...            /window          - window detection status
-...            /state           - json structure with common values (auto, lock, window, temp, bat,...)
+/PREFIX/ADDRESS/current_temp  - measured temperature
+...            /temp          - current setpoint (may be timer-sourced)
+...            /mode          - off | heat | auto   (heat = manual, "open" reported when valve is forced open)
+...            /battery       - battery voltage
+...            /battery_pct   - battery charge in % (2x AA rechargeable, 2.0V=0% .. 2.8V=100%)
+...            /error         - error code, as received from client
+...            /lock          - button lock status
+...            /valve_wanted  - current setting of the valve
+...            /window        - window detection status
+...            /state         - json structure with common values (auto, lock, window, temp, bat,...)
                                 - {"auto":false,"lock":false,"window":false,"temp":21.46,"bat":2.575,"temp_wtd":21.0,"temp_wset":0.0,"valve_wtd":43,"error":0,"last_seen":1607780775,"st":2}
-...            /last_seen       - unix time of the last incoming data from the client
+...            /last_seen     - unix time of the last incoming data from the client
 
-...            /eeprom/ADDR     - subtree containing read values from the settings EEPROM after issuing read/write commands
+...            /eeprom/ADDR   - subtree containing read values from the settings EEPROM after issuing read/write commands
 
 ...            /timers/DAY/SLOT/time - time for the set slot
 ...                            /mode - mode for the selected slot 0-3
 
 Settings subtree: These are write-only values:
 
-/PREFIX/set/ADDRESS/requested_temp
-...                /mode
-...                /lock
+/PREFIX/set/ADDRESS/mode      - off | heat | auto (legacy "manual" accepted as heat, "open" accepted and forces the valve open)
+                                - switching to heat/auto restores the last usable setpoint if the client is in off/open state
+...                /temp      - setpoint in C, rounded to 0.5C, clamped to 5-30
+...                /auto      - true/false
+...                /lock      - true/false
 ...                /eeprom/EEPROM_ADDR/read   - ignores the topic contents, requests eeprom read for the specified address, after success sets the eeprom/ADDR topic in read subtree with set value
 ...                                   /write  - writes the set decadic value (topic content) to specified eeprom settings memory address, after success sets the eeprom/ADDR topic in read subtree with set value
 ...                /timers/DAY/SLOT/time      - sets time for given DAY/SLOT

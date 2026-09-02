@@ -401,6 +401,12 @@ protected:
         hr->temp_avg.set_remote(tmp_avg_h << 8 | tmp_avg_l);
         hr->bat_avg.set_remote(bat_avg_h << 8 | bat_avg_l);
         hr->temp_wanted.set_remote(tmp_wtd);
+
+        // remember usable setpoints (may be timer-sourced)
+        if (tmp_wtd >= TEMP_MIN && tmp_wtd <= TEMP_MAX) {
+            hr->last_setpoint = tmp_wtd;
+        }
+
         hr->cur_valve_wtd.set_remote(valve_wtd);
         hr->ctl_err.set_remote(ctl_err);
 

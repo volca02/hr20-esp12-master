@@ -67,7 +67,11 @@ ICACHE_FLASH_ATTR Web::Web(Config &config, HR20Master &master)
       master(master),
       base_group("base_group", ""),
       rfm_pass("RFM Password", "rfm_pass", config.rfm_pass_hex, 17),
-      ntp_server("NTP Server", "ntp_server", config.ntp_server, 40)
+      ntp_server("NTP Server", "ntp_server", config.ntp_server, 40),
+      thermo_names("Thermostat names (13:Kids room,15:Office)",
+                   "thermo_names",
+                   config.thermo_names,
+                   127)
 #ifdef MQTT
       ,
       mqtt_group("mqtt_group", ""),
@@ -92,6 +96,7 @@ ICACHE_FLASH_ATTR void Web::begin() {
 //    iotWebConf.setConfigPin(CONFIG_BUTTON_PIN);
     base_group.addItem(&rfm_pass);
     base_group.addItem(&ntp_server);
+    base_group.addItem(&thermo_names);
 
 #ifdef MQTT
     mqtt_group.addItem(&mqtt_server);

@@ -29,18 +29,19 @@
 #include "util.h"
 #include "json.h"
 #include "str.h"
+#include "hass.h"
 
 namespace hr20 {
 namespace mqtt {
 
 // topic enum. Each has different initial letter for simple parsing
 enum Topic {
-    AVG_TMP = 1,
+    CUR_TMP = 1,
     BAT     = 2,
     ERR     = 3,
     LOCK    = 4,
     AUTO    = 5,
-    REQ_TMP = 6,
+    TMP     = 6,
     VALVE_WTD = 7,
     WND       = 8,
     LAST_SEEN = 9,
@@ -48,6 +49,8 @@ enum Topic {
     STATE     = 11,
     EEPROM    = 12,
     MODE      = 13,
+    BATT_PCT  = 14,
+    AVAIL     = 15,
     INVALID_TOPIC = 255
 };
 
@@ -72,19 +75,23 @@ enum Mode {
     INVALID_MODE_TYPE = 255
 };
 
-static const char *S_AVG_TMP   = "average_temp";
+static const char *S_CUR_TMP   = "current_temp";
 static const char *S_BAT       = "battery";
+static const char *S_BATT_PCT  = "battery_pct";
 static const char *S_ERR       = "error";
 static const char *S_EEPROM     = "eeprom";
 static unsigned    S_EEPROM_LEN = 6;
 static const char *S_LOCK      = "lock";
 static const char *S_MODE      = "mode"; // this is a OFF/MANUAL/AUTO mode info topic
 static const char *S_AUTO      = "auto";
-static const char *S_REQ_TMP   = "requested_temp"; // 14
+static const char *S_TMP       = "temp";
 static const char *S_VALVE_WTD = "valve_wanted";
 static const char *S_WND       = "window";
 static const char *S_LAST_SEEN = "last_seen";
 static const char *S_STATE     = "state";
+static const char *S_AVAIL     = "avail";
+static const char *S_AVAIL_ON  = "online";
+static const char *S_AVAIL_OFF = "offline";
 
 static const char *S_TIMER     = "timer";
 static unsigned    S_TIMER_LEN = 5;
@@ -103,6 +110,9 @@ static const char *S_EA_WRITE = "write";
 // valve modes
 static const char *S_MODE_OFF    = "off";
 static const char *S_MODE_AUTO   = "auto";
+// heat is the HA name for manual mode
+static const char *S_MODE_HEAT   = "heat";
+// legacy alias for heat
 static const char *S_MODE_MANUAL = "manual";
 static const char *S_MODE_OPEN   = "open";
 
@@ -111,19 +121,21 @@ using PathBuffer = BufferHolder<MAX_MQTT_PATH_LENGTH>;
 
 ICACHE_FLASH_ATTR static const char *topic_str(Topic topic) {
     switch (topic) {
-    case AVG_TMP:   return S_AVG_TMP;
+    case CUR_TMP:   return S_CUR_TMP;
     case BAT:       return S_BAT;
     case ERR:       return S_ERR;
     case EEPROM:    return S_EEPROM;
     case LOCK:      return S_LOCK;
     case AUTO:      return S_AUTO;
     case MODE:      return S_MODE;
-    case REQ_TMP:   return S_REQ_TMP;
+    case TMP:       return S_TMP;
     case VALVE_WTD: return S_VALVE_WTD;
     case WND:       return S_WND;
     case LAST_SEEN: return S_LAST_SEEN;
     case STATE:     return S_STATE;
     case TIMER:     return S_TIMER;
+    case BATT_PCT:  return S_BATT_PCT;
+    case AVAIL:     return S_AVAIL;
     default:
         return nullptr;
     }
@@ -150,11 +162,15 @@ ICACHE_FLASH_ATTR static const char *timer_topic_str(TimerTopic sub) {
 ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
     switch (*top) {
     case 'a':
-        if (strcmp(top, S_AVG_TMP) == 0) return AVG_TMP;
         if (strcmp(top, S_AUTO) == 0) return AUTO;
+        if (strcmp(top, S_AVAIL) == 0) return AVAIL;
         return INVALID_TOPIC;
     case 'b':
         if (strcmp(top, S_BAT) == 0) return BAT;
+        if (strcmp(top, S_BATT_PCT) == 0) return BATT_PCT;
+        return INVALID_TOPIC;
+    case 'c':
+        if (strcmp(top, S_CUR_TMP) == 0) return CUR_TMP;
         return INVALID_TOPIC;
     case 'e':
         if (strcmp(top, S_ERR) == 0) return ERR;
@@ -166,13 +182,12 @@ ICACHE_FLASH_ATTR static Topic parse_topic(const char *top) {
         return INVALID_TOPIC;
     case 'm':
         if (strcmp(top, S_MODE) == 0) return MODE;
-    case 'r':
-        if (strcmp(top, S_REQ_TMP) == 0) return REQ_TMP;
         return INVALID_TOPIC;
     case 's':
         if (strcmp(top, S_STATE) == 0) return STATE;
         return INVALID_TOPIC;
     case 't':
+        if (strcmp(top, S_TMP) == 0) return TMP;
         if (strncmp(top, S_TIMER, S_TIMER_LEN) == 0) return TIMER;
         return INVALID_TOPIC;
     case 'v':
@@ -228,6 +243,11 @@ ICACHE_FLASH_ATTR static Mode parse_mode(const Str &top) {
 
     if (top[0] == 'a') {
         if (top == S_MODE_AUTO) return MODE_AUTO;
+    }
+
+    // heat is the HA name of manual mode, manual is the legacy alias
+    if (top[0] == 'h') {
+        if (top == S_MODE_HEAT) return MODE_MANUAL;
     }
 
     if (top[0] == 'm') {
@@ -304,7 +324,9 @@ struct Path {
             rv += SEPARATOR;
         }
 
-        rv += addr;
+        // 2-digit zero-padded address - keeps autodiscovery lengths fixed
+        rv += static_cast<char>('0' + addr / 10);
+        rv += static_cast<char>('0' + addr % 10);
         rv += SEPARATOR;
         rv += topic_str(topic);
 
@@ -555,6 +577,29 @@ struct Path {
     uint8_t eeprom_address = 0; // eeprom address in case topic is EEPROM
 };
 
+// remembers a usable (5..30C) setpoint so it can be restored when
+// leaving off/open mode - the modes themselves don't carry a setpoint
+ICACHE_FLASH_ATTR static void remember_setpoint(HR20 *hr) {
+    if (hr->temp_wanted.remote_valid()) {
+        auto t = hr->temp_wanted.get_remote();
+        if (t >= TEMP_MIN && t <= TEMP_MAX) hr->last_setpoint = t;
+    }
+}
+
+// if the current setpoint is the off/open magic (or unknown), put a
+// usable one back so that switching to heat/auto doesn't leave the
+// valve at the off position
+ICACHE_FLASH_ATTR static void restore_setpoint(HR20 *hr) {
+    bool valid = hr->temp_wanted.remote_valid();
+    uint8_t cur = valid ? hr->temp_wanted.get_remote() : 0;
+
+    if (!valid || cur == TEMP_OFF || cur == TEMP_OPEN) {
+        auto last = hr->last_setpoint;
+        hr->temp_wanted.set_requested(
+            (last >= TEMP_MIN && last <= TEMP_MAX) ? last : TEMP_DEFAULT);
+    }
+}
+
 /// Publishes/receives topics in mqtt
 struct MQTTPublisher {
     // TODO: Make this configurable!
@@ -608,6 +653,12 @@ struct MQTTPublisher {
                 PathBuffer pb;
                 auto path = Path::compose_set_prefix_wildcard(pb);
                 client.subscribe(path.c_str());
+
+                // (re)announce all known clients to the HA autodiscovery
+                for (uint8_t a = 1; a < MAX_HR_ADDR; ++a) {
+                    auto *hr = master.model[a];
+                    if (hr && hr->last_contact) publish_discovery(a);
+                }
             }
         }
 
@@ -627,6 +678,30 @@ struct MQTTPublisher {
         if (!reconnect(now)) return;
 
         client.loop();
+
+        // publish HA autodiscovery for a client we haven't announced yet
+        if ((announced & (1u << addr)) == 0) {
+            auto *hr = master.model[addr];
+            if (hr && hr->last_contact) publish_discovery(addr);
+        }
+
+        // going stale is not an event - check it on every visit. Only the
+        // offline direction lives here; "online" is published by the state
+        // machine together with last_seen on every data burst
+        if (addr) {
+            auto *hr = master.model[addr];
+            if (hr && hr->last_contact && avail_up.get(addr) &&
+                (now - hr->last_contact) >= AVAIL_TIMEOUT_SECS)
+            {
+                avail_up.clear(addr);
+
+                Path p{addr, mqtt::AVAIL};
+                BufferHolder<8> b;
+                StrMaker sm{b};
+                sm += S_AVAIL_OFF;
+                publish(p, sm.str());
+            }
+        }
 
         if (!states[addr]) {
             // no changes for this client
@@ -694,6 +769,40 @@ struct MQTTPublisher {
         val.published() = true;
     }
 
+    /// publish for synced values - the per-topic source of truth is the
+    /// requested value while a write to the device is pending (optimistic
+    /// fiction, so MQTT clients react immediately), and the remote value
+    /// once the device has reported - set_remote() clears published(), so
+    /// the real value is emitted then, rolling the fiction back if the
+    /// device did not take it (the request keeps retrying meanwhile)
+    template <typename T, typename CvT>
+    ICACHE_FLASH_ATTR void publish(const Str &path,
+                                   SyncedValue<T, CvT> &val,
+                                   uint16_t hint,
+                                   bool retain = MQTT_RETAIN) const
+    {
+        if (val.published() || (!val.remote_valid() && !val.is_requested_set()))
+            return;
+
+        cvt::ValueBuffer vb;
+        auto vstr =
+            CvT::to_str(vb, val.is_requested_set() ? val.get_requested()
+                                                   : val.get_remote());
+
+        if (client.publish(path.c_str(),
+                           reinterpret_cast<const uint8_t *>(vstr.c_str()),
+                           vstr.length(),
+                           // retained
+                           retain))
+        {
+            EVENT_ARG(MQTT_PUBLISH, hint);
+        } else {
+            ERR_ARG(MQTT_CANT_PUBLISH, hint);
+        }
+
+        val.published() = true;
+    }
+
     template <typename T, typename CvT>
     ICACHE_FLASH_ATTR void publish(const Path &p,
                                    CachedValue<T, CvT> &val) const
@@ -742,8 +851,11 @@ struct MQTTPublisher {
         mode_path.timer_topic = mqtt::TIMER_MODE;
         time_path.timer_topic = mqtt::TIMER_TIME;
 
-        if (!val.published() && val.remote_valid()) {
-            const auto &remote = val.get_remote();
+        if (!val.published() &&
+            (val.remote_valid() || val.is_requested_set())) {
+            // pending requests are the source of truth (optimistic)
+            const auto &remote =
+                val.is_requested_set() ? val.get_requested() : val.get_remote();
 
             // holds the converted value between to_str and publish
             cvt::ValueBuffer vb;
@@ -773,6 +885,64 @@ struct MQTTPublisher {
 
             val.published() = true;
         }
+    }
+
+    /// publishes a retained discovery message, logs an error on failure
+    ICACHE_FLASH_ATTR bool publish_raw(const Str &topic, const Str &payload) {
+        if (!topic.c_str() || !payload.c_str()) {
+            ERR(MQTT_HASS_OVERFLOW);
+            return false;
+        }
+
+        if (client.publish(topic.c_str(),
+                           reinterpret_cast<const uint8_t *>(payload.c_str()),
+                           payload.length(),
+                           /*retained*/ true))
+        {
+            EVENT(MQTT_PUBLISH);
+            return true;
+        }
+
+        ERR(MQTT_CANT_PUBLISH);
+        return false;
+    }
+
+    /// publishes the retained HA autodiscovery configs (climate entity and
+    /// battery sensor) for one client and marks it as announced
+    ICACHE_FLASH_ATTR void publish_discovery(uint8_t addr) {
+        static hass::ConfigBuffer cb;
+        PathBuffer tb;
+
+        const char *pfx = config.mqtt_topic_prefix;
+
+        // user-defined name (if any), else "HR20 <addr>"
+        char nm[THERMO_NAME_MAX + 1];
+        const char *un = config.thermo_name(addr);
+        if (un) {
+            // parser guarantees nlen <= THERMO_NAME_MAX and NUL termination
+            strcpy(nm, un);
+        } else {
+            memcpy(nm, "HR20 ", 5);
+            nm[5] = '0' + addr / 10;
+            nm[6] = '0' + addr % 10;
+            nm[7] = 0;
+        }
+
+        auto topic = hass::compose(hass::T_CLIMATE_TOPIC, addr, pfx, "", "", tb);
+        auto conf  = hass::compose(hass::T_CLIMATE_CONF,  addr, pfx, "", nm, cb);
+        bool ok = publish_raw(topic, conf);
+
+        // the battery sensor gets the same name plus a suffix
+        char snm[THERMO_NAME_MAX + 9];
+        unsigned l = strlen(nm);
+        memcpy(snm, nm, l);
+        memcpy(snm + l, " battery", 9); // NUL included
+
+        topic = hass::compose(hass::T_SENSOR_TOPIC, addr, pfx, "", "", tb);
+        conf  = hass::compose(hass::T_SENSOR_CONF,  addr, pfx, snm, nm, cb);
+        ok = publish_raw(topic, conf) && ok;
+
+        if (ok) announced |= 1u << addr;
     }
 
     ICACHE_FLASH_ATTR void publish_eeprom() {
@@ -851,7 +1021,7 @@ struct MQTTPublisher {
             NEXT_MIN_STATE;
         STATE(3):
             // TODO: this is in 0.01 of C, change it to float?
-            p.topic = mqtt::AVG_TMP;
+            p.topic = mqtt::CUR_TMP;
             publish(p, hr->temp_avg);
             NEXT_MIN_STATE;
         STATE(4):
@@ -862,7 +1032,7 @@ struct MQTTPublisher {
         STATE(5):
             // TODO: Fix formatting for temp_wanted - float?
             // temp_wanted is in 0.5 C
-            p.topic = mqtt::REQ_TMP;
+            p.topic = mqtt::TMP;
             publish_synced(p, hr->temp_wanted);
             NEXT_MIN_STATE;
         STATE(6):
@@ -880,6 +1050,18 @@ struct MQTTPublisher {
             StrMaker sm{vb};
             sm += hr->last_contact;
             publish(p, sm.str(), /*ratain*/true);
+
+            // fresh data means the device is available - publish on the
+            // offline->online transition only
+            if (!avail_up.get(addr)) {
+                avail_up.set(addr);
+
+                p.topic = mqtt::AVAIL;
+                BufferHolder<8> b;
+                StrMaker sm2{b};
+                sm2 += S_AVAIL_ON;
+                publish(p, sm2.str());
+            }
             NEXT_MIN_STATE;
         }
         STATE(9): {
@@ -887,21 +1069,44 @@ struct MQTTPublisher {
             cvt::ValueBuffer vb;
             StrMaker sm{vb};
 
-            // Combining off/open and auto/manual for a simple HASS integration here
-            if (hr->temp_wanted.get_remote() == TEMP_OFF)
+            // Combining off/open and auto/heat(manual) for HA climate.
+            // heat is what HA knows, manual is not a HA climate mode.
+            // Pending requests are the source of truth (optimistic).
+            uint8_t tw = hr->temp_wanted.is_requested_set()
+                             ? hr->temp_wanted.get_requested()
+                             : hr->temp_wanted.get_remote();
+            bool am = hr->auto_mode.is_requested_set()
+                          ? hr->auto_mode.get_requested()
+                          : hr->auto_mode.get_remote();
+
+            if (tw == TEMP_OFF)
                 sm += S_MODE_OFF;
-            else if (hr->temp_wanted.get_remote() == TEMP_OPEN)
+            else if (tw == TEMP_OPEN)
                 sm += S_MODE_OPEN;
-            else if (hr->auto_mode.get_remote())
+            else if (am)
                 sm += S_MODE_AUTO;
             else
-                sm += S_MODE_MANUAL;
+                sm += S_MODE_HEAT;
 
             publish(p, sm.str());
             NEXT_MIN_STATE;
         }
+        STATE(10):
+            // battery charge - 2x AA rechargeable: 2.0V (0%) .. 2.8V (100%)
+            if (hr->bat_avg.remote_valid()) {
+                p.topic = mqtt::BATT_PCT;
+                cvt::ValueBuffer vb;
+                StrMaker sm{vb};
+                int pct = (int)hr->bat_avg.get_remote() - 2000;
+                pct = pct * 100 / 800;
+                if (pct < 0) pct = 0;
+                if (pct > 100) pct = 100;
+                sm += pct;
+                publish(p, sm.str());
+            }
+            NEXT_MIN_STATE;
 #ifdef MQTT_JSON
-        STATE(10): {
+        STATE(11): {
             p.topic = mqtt::STATE;
             BufferHolder<160> buf;
             StrMaker sm{buf};
@@ -996,19 +1201,22 @@ struct MQTTPublisher {
         Str val{(const char *)payload, length};
 
         switch (p.topic) {
-        case mqtt::REQ_TMP: ok = hr->temp_wanted.set_requested_from_str(val); break;
+        case mqtt::TMP: ok = hr->temp_wanted.set_requested_from_str(val); break;
         case mqtt::AUTO: ok = hr->auto_mode.set_requested_from_str(val); break;
         case mqtt::MODE: {
             // off will set temp to TEMP_OFF
             auto mode = parse_mode(val);
+            bool restore = false;
 
             switch (mode) {
             case MODE_OFF: // off sets manual and 4.5 degrees
+                remember_setpoint(hr);
                 hr->auto_mode.set_requested(false);
                 hr->temp_wanted.set_requested(TEMP_OFF);
                 ok = true;
                 break;
             case MODE_OPEN: // open sets over 30C and manual
+                remember_setpoint(hr);
                 hr->auto_mode.set_requested(false);
                 hr->temp_wanted.set_requested(TEMP_OPEN);
                 ok = true;
@@ -1016,15 +1224,19 @@ struct MQTTPublisher {
             case MODE_AUTO:
                 ok = true;
                 hr->auto_mode.set_requested(true);
+                restore = true;
                 break;
-            case MODE_MANUAL:
+            case MODE_MANUAL: // also the target of the HA "heat" mode
                 ok = true;
                 hr->auto_mode.set_requested(false);
+                restore = true;
                 break;
             default:
                 ERR(MQTT_INVALID_TOPIC_VALUE);
                 ok = false;
             }
+
+            if (restore) restore_setpoint(hr);
             break;
         }
         case mqtt::LOCK: ok = hr->menu_locked.set_requested_from_str(val); break;
@@ -1076,7 +1288,12 @@ struct MQTTPublisher {
         }
 
         // not an error. change happened on the client model, sync is lost
-        if (ok) hr->synced = false;
+        if (ok) {
+            hr->synced = false;
+            // run the publish state machine on the next pass - the pending
+            // request is now the source of truth for its topic
+            states[p.addr] |= CHANGE_FREQUENT;
+        }
 
         EVENT_ARG(MQTT_CALLBACK, p.as_uint());
         DBG("(MQTT %d %d %d)", p.addr, p.as_uint(), ok ? 1 : 0);
@@ -1100,6 +1317,14 @@ struct MQTTPublisher {
     /// seriously, const correctness anyone? PubSubClient does not have single const method...
     mutable PubSubClient client;
     uint32_t states[MAX_HR_ADDR];
+
+    // HA autodiscovery - bit per already announced client address
+    uint32_t announced = 0;
+
+    // device availability - clients currently reported online. "online"
+    // is published by the state machine with last_seen (fresh data),
+    // "offline" by the stale check in update()
+    AddrFlags avail_up;
 
     // Publisher state machine
     uint8_t addr = 0;
